@@ -49,8 +49,14 @@ if { [string first $scripts_vivado_version $current_vivado_version] == -1 } {
 
 set list_projs [get_projects -quiet]
 if { $list_projs eq "" } {
-   create_project project_1 myproj -part xcvp1552-vsva3340-2MHP-e-S
+   create_project project_1 myproj -part xcvp1552-vsva3340-2MHP-e-S -force
 }
+
+# Register local IP repository (hw_discovery, uuid_rom, cmd_queue, axi4_full_passthrough)
+set_property ip_repo_paths \
+  [file normalize [file join $script_folder iprepo]] \
+  [current_project]
+update_ip_catalog -rebuild
 
 
 # CHANGE DESIGN NAME HERE
