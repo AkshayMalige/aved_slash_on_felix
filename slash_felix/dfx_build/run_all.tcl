@@ -13,6 +13,7 @@ source [file join $here 00_felix_cips_static_region.tcl]
 # real iprepo (which has hbm_bandwidth) before building the BDC self-test kernels.
 set_property ip_repo_paths $iprepo [current_project]
 update_ip_catalog -rebuild
+source [file join $here 05_fix_static.tcl]
 source [file join $here 10_service_layer.tcl]
 source [file join $here 20_slash.tcl]
 source [file join $here 30_integrate.tcl]

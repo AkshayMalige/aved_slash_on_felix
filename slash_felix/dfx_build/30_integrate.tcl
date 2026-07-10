@@ -86,6 +86,30 @@ save_bd_design
 puts "TOP_CELLS: [get_bd_cells /*]"
 assign_bd_address
 puts "ASSIGN_DONE"
+
+# ---- pin base_logic + clk-wizard addresses to the V80 SLASH layout so the
+#      hw_discovery BAR table (configured in 05) matches the hardware, and
+#      v80-smi set-frequency hits the right clk_wizard address ----
+proc pin_seg {space segpat off rng} {
+    set sp [get_bd_addr_spaces $space]
+    foreach seg [get_bd_addr_segs -quiet -of_objects $sp -filter "NAME =~ $segpat"] {
+        if {[catch {assign_bd_address -target_address_space $sp -offset $off -range $rng $seg -force} e]} {
+            puts "PIN_WARN $space $segpat: $e"
+        } else {
+            puts "PIN_OK $segpat -> [get_property OFFSET $seg]"
+        }
+    }
+}
+foreach space {static_region/aved/cips/CPM_PCIE_NOC_0 static_region/aved/cips/CPM_PCIE_NOC_1} {
+    pin_seg $space *hw_discovery*       0x0000020101000000 0x1000
+    pin_seg $space *uuid_rom*           0x0000020101001000 0x1000
+    pin_seg $space *gcq_m2r_S00*        0x0000020101010000 0x10000
+    pin_seg $space *pdi_reset_gpio*     0x0000020101040000 0x10000
+    pin_seg $space *clk_wizard_slash*   0x0000020400000000 0x10000
+    pin_seg $space *clk_wizard_service* 0x0000020400010000 0x10000
+}
+puts "PIN_DONE"
+
 validate_bd_design
 puts "INTEGRATE_VALIDATE_DONE"
 
