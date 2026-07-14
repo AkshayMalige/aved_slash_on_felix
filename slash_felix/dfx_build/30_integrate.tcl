@@ -82,6 +82,16 @@ foreach i {0 1 2 3 4} {
         [get_bd_intf_pins static_region/virt_noc/axi_noc_${i}/S00_INI]
 }
 
+# ---- host SI ports must reach DDR via M01_INI too (per SLASH developer),
+#      since the single DDR channel is now fed only through M01_INI->S01_INI.
+#      These are the exact CONNECTIONS the developer set on S00/S01_AXI. ----
+set_property -dict [list CONFIG.CONNECTIONS {M02_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_INI {read_bw {500} write_bw {500} initial_boot {true}} M06_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_AXI {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}} M04_INI {read_bw {500} write_bw {500} initial_boot {true}} M05_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_AXI {read_bw {5} write_bw {5}} M00_INI {read_bw {128} write_bw {128} initial_boot {false}}}] \
+    [get_bd_intf_pins static_region/noc/axi_noc_cips/S00_AXI]
+set_property -dict [list CONFIG.CONNECTIONS {M01_INI {read_bw {500} write_bw {500} initial_boot {true}} M06_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_AXI {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}} M03_INI {read_bw {500} write_bw {500} initial_boot {true}} M04_INI {read_bw {500} write_bw {500} initial_boot {true}} M05_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_AXI {read_bw {5} write_bw {5}} M00_INI {read_bw {500} write_bw {500} initial_boot {true}}}] \
+    [get_bd_intf_pins static_region/noc/axi_noc_cips/S01_AXI]
+set_property -dict [list CONFIG.CATEGORY {ps_rpu}] \
+    [get_bd_intf_pins static_region/noc/axi_noc_cips/S03_AXI]
+
 save_bd_design
 puts "TOP_CELLS: [get_bd_cells /*]"
 assign_bd_address
