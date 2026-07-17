@@ -1046,8 +1046,8 @@ proc create_hier_cell_noc { parentCell nameHier } {
   set axi_noc_mc_ddr4_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_mc_ddr4_0 ]
   set_property -dict [list \
     CONFIG.CONTROLLERTYPE {DDR4_SDRAM} \
-    CONFIG.MC0_CONFIG_NUM {config14} \
-    CONFIG.MC_CHAN_REGION1 {DDR_CH1_1} \
+    CONFIG.MC0_CONFIG_NUM {config17} \
+    CONFIG.MC_CHAN_REGION1 {DDR_CH2} \
     CONFIG.MC_DATAWIDTH {72} \
     CONFIG.MC_EN_INTR_RESP {TRUE} \
     CONFIG.MC_INIT_MEM_USING_ECC_SCRUB {true} \
@@ -1055,11 +1055,11 @@ proc create_hier_cell_noc { parentCell nameHier } {
     CONFIG.MC_MEMORY_DEVICETYPE {UDIMMs} \
     CONFIG.MC_MEMORY_SPEEDGRADE {DDR4-2666V(19-19-19)} \
     CONFIG.MC_MEMORY_TIMEPERIOD0 {800} \
-    CONFIG.MC_RANK {1} \
+    CONFIG.MC_RANK {2} \
     CONFIG.MC_ROWADDRESSWIDTH {17} \
     CONFIG.NUM_CLKS {0} \
     CONFIG.NUM_MC {1} \
-    CONFIG.NUM_MCP {4} \
+    CONFIG.NUM_MCP {1} \
     CONFIG.NUM_MI {0} \
     CONFIG.NUM_NMI {0} \
     CONFIG.NUM_NSI {2} \
@@ -1068,11 +1068,11 @@ proc create_hier_cell_noc { parentCell nameHier } {
 
 
   set_property -dict [ list \
-   CONFIG.CONNECTIONS {MC_0 {read_bw {1000} write_bw {1000} initial_boot {false}}} \
+   CONFIG.CONNECTIONS {} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_mc_ddr4_0/S00_INI]
 
   set_property -dict [ list \
-   CONFIG.CONNECTIONS {MC_1 {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}}} \
+   CONFIG.CONNECTIONS {MC_0 {read_bw {800} write_bw {800} read_avg_burst {4} write_avg_burst {4} initial_boot {true}}} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_mc_ddr4_0/S01_INI]
 
   # Create instance: axi_noc_cips, and set properties
@@ -1097,9 +1097,9 @@ proc create_hier_cell_noc { parentCell nameHier } {
  ] [get_bd_intf_pins /static_region/noc/axi_noc_cips/M01_AXI]
 
   set_property -dict [ list \
-   CONFIG.CONNECTIONS {M02_INI {read_bw {500} write_bw {500} initial_boot {true}} M06_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_AXI {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}} M04_INI {read_bw {500} write_bw {500} initial_boot {true}} M05_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_AXI {read_bw {5} write_bw {5}} M00_INI {read_bw {128} write_bw {128} initial_boot {false}}} \
-   CONFIG.DEST_IDS {M01_AXI:0x1:M00_AXI:0x700} \
-   CONFIG.REMAPS {M00_INI {{0x20108000000 0x00038000000 0x08000000}}} \
+   CONFIG.CONNECTIONS {M02_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_INI {read_bw {500} write_bw {500} initial_boot {true}} M06_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_AXI {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}} M04_INI {read_bw {500} write_bw {500} initial_boot {true}} M05_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_AXI {read_bw {5} write_bw {5}} M00_INI {read_bw {128} write_bw {128} initial_boot {false}}} \
+   CONFIG.DEST_IDS {M01_AXI:0x1:M00_AXI:0x540} \
+   CONFIG.REMAPS {M01_INI {{0x20108000000 0x00038000000 0x08000000}}} \
    CONFIG.NOC_PARAMS {} \
    CONFIG.CATEGORY {ps_pcie} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_cips/S00_AXI]
@@ -1109,8 +1109,8 @@ proc create_hier_cell_noc { parentCell nameHier } {
  ] [get_bd_intf_pins /static_region/noc/axi_noc_cips/S00_INI]
 
   set_property -dict [ list \
-   CONFIG.CONNECTIONS {M01_INI {read_bw {500} write_bw {500} initial_boot {true}} M06_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_AXI {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}} M03_INI {read_bw {500} write_bw {500} initial_boot {true}} M04_INI {read_bw {500} write_bw {500} initial_boot {true}} M05_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_AXI {read_bw {5} write_bw {5}}} \
-   CONFIG.DEST_IDS {M01_AXI:0x1:M00_AXI:0x700} \
+   CONFIG.CONNECTIONS {M01_INI {read_bw {500} write_bw {500} initial_boot {true}} M06_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_AXI {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}} M03_INI {read_bw {500} write_bw {500} initial_boot {true}} M04_INI {read_bw {500} write_bw {500} initial_boot {true}} M05_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_AXI {read_bw {5} write_bw {5}} M00_INI {read_bw {500} write_bw {500} initial_boot {true}}} \
+   CONFIG.DEST_IDS {M01_AXI:0x1:M00_AXI:0x540} \
    CONFIG.NOC_PARAMS {} \
    CONFIG.CATEGORY {ps_pcie} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_cips/S01_AXI]
@@ -1121,7 +1121,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
 
   set_property -dict [ list \
    CONFIG.CONNECTIONS {M02_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_INI {read_bw {500} write_bw {500} initial_boot {false}}} \
-   CONFIG.DEST_IDS {} \
    CONFIG.NOC_PARAMS {} \
    CONFIG.CATEGORY {ps_pmc} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_cips/S02_AXI]
@@ -1132,7 +1131,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
 
   set_property -dict [ list \
    CONFIG.CONNECTIONS {M00_INI {read_bw {500} write_bw {500} initial_boot {false}}} \
-   CONFIG.DEST_IDS {} \
    CONFIG.NOC_PARAMS {} \
    CONFIG.CATEGORY {ps_rpu} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_cips/S03_AXI]
@@ -2062,42 +2060,42 @@ proc create_root_design { parentCell } {
   [get_bd_ports resetn_pl_periph_0]
 
   # Create address segments
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/eth_0/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_0/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/eth_1/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_1/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/eth_2/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_2/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/eth_3/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_3/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/eth_4/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_4/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/eth_5/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_5/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/eth_6/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_6/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/eth_7/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_7/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/eth_0/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_0/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/eth_1/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_1/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/eth_2/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_2/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/eth_3/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_3/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/eth_4/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_4/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/eth_5/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_5/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/eth_6/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_6/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/eth_7/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/eth_7/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
   assign_bd_address -offset 0xE0000000 -range 0x10000000 -target_address_space [get_bd_addr_spaces service_layer/qpt/m_axi] [get_bd_addr_segs static_region/aved/cips/NOC_CPM_PCIE_0/pspmc_0_psv_noc_pcie_0] -force
   assign_bd_address -offset 0x000600000000 -range 0x000200000000 -target_address_space [get_bd_addr_spaces service_layer/qpt/m_axi] [get_bd_addr_segs static_region/aved/cips/NOC_CPM_PCIE_0/pspmc_0_psv_noc_pcie_1] -force
   assign_bd_address -offset 0x008000000000 -range 0x004000000000 -target_address_space [get_bd_addr_spaces service_layer/qpt/m_axi] [get_bd_addr_segs static_region/aved/cips/NOC_CPM_PCIE_0/pspmc_0_psv_noc_pcie_2] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_0/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_0/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_1/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_1/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_2/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_2/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_3/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_3/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_0/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_0/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_1/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_1/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_2/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_2/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_3/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_3/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
-  assign_bd_address -offset 0x020108000000 -range 0x08000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S00_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_0/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_0/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_1/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_1/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_2/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_2/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_3/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces service_layer/vpt_3/m_axi] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_0/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_0/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_1/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_1/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_2/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_2/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_3/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces slash/ddr_bandwidth_3/Data_m_axi_gmem0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
+  assign_bd_address -offset 0x020108000000 -range 0x08000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
   assign_bd_address -offset 0xFFA80000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_adma_0] -force
   assign_bd_address -offset 0xFFA90000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_adma_1] -force
   assign_bd_address -offset 0xFFAA0000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_adma_2] -force
@@ -2226,8 +2224,8 @@ proc create_root_design { parentCell } {
   assign_bd_address -offset 0x020200070000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs slash/traffic_virt_3/s_axi_control/Reg] -force
   assign_bd_address -offset 0x020200080000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs slash/traffic_virt_4/s_axi_control/Reg] -force
   assign_bd_address -offset 0x020101001000 -range 0x00001000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/aved/base_logic/uuid_rom/S_AXI/reg0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C1_DDR_LOW0] -force
+  assign_bd_address -offset 0x060000000000 -range 0x000780000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2] -force
+  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0] -force
   assign_bd_address -offset 0xFFA80000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_adma_0] -force
   assign_bd_address -offset 0xFFA90000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_adma_1] -force
   assign_bd_address -offset 0xFFAA0000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_adma_2] -force
@@ -2356,11 +2354,7 @@ proc create_root_design { parentCell } {
   assign_bd_address -offset 0x020200070000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs slash/traffic_virt_3/s_axi_control/Reg] -force
   assign_bd_address -offset 0x020200080000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs slash/traffic_virt_4/s_axi_control/Reg] -force
   assign_bd_address -offset 0x020101001000 -range 0x00001000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_1] [get_bd_addr_segs static_region/aved/base_logic/uuid_rom/S_AXI/reg0] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/LPD_AXI_NOC_0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S00_INI/C0_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/LPD_AXI_NOC_0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S00_INI/C0_DDR_LOW0] -force
   assign_bd_address -offset 0x80000000 -range 0x00010000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/M_AXI_LPD] [get_bd_addr_segs static_region/aved/base_logic/gcq_m2r/S01_AXI/S01_AXI_Reg] -force
-  assign_bd_address -offset 0x058000000000 -range 0x000380000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/PMC_NOC_AXI_0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S00_INI/C0_DDR_CH1_1] -force
-  assign_bd_address -offset 0x00000000 -range 0x80000000 -target_address_space [get_bd_addr_spaces static_region/aved/cips/PMC_NOC_AXI_0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S00_INI/C0_DDR_LOW0] -force
 
   # Exclude Address Segments
   exclude_bd_addr_seg -offset 0x020200000000 -range 0x40000000 -target_address_space [get_bd_addr_spaces slash/traffic_virt_0/Data_m_axi_gmem0] [get_bd_addr_segs service_layer/vpt_0/s_axi/reg0]
@@ -2368,7 +2362,7 @@ proc create_root_design { parentCell } {
   exclude_bd_addr_seg -offset 0x020380000000 -range 0x40000000 -target_address_space [get_bd_addr_spaces slash/traffic_virt_2/Data_m_axi_gmem0] [get_bd_addr_segs service_layer/vpt_2/s_axi/reg0]
   exclude_bd_addr_seg -offset 0x020400000000 -range 0x40000000 -target_address_space [get_bd_addr_spaces slash/traffic_virt_3/Data_m_axi_gmem0] [get_bd_addr_segs service_layer/vpt_3/s_axi/reg0]
   exclude_bd_addr_seg -offset 0x020480000000 -range 0x40000000 -target_address_space [get_bd_addr_spaces slash/traffic_virt_4/Data_m_axi_gmem0] [get_bd_addr_segs service_layer/qpt/s_axi/reg0]
-  exclude_bd_addr_seg -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S00_INI/C0_DDR_CH1_1]
+  exclude_bd_addr_seg -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/noc/axi_noc_mc_ddr4_0/S01_INI/C0_DDR_CH2]
   exclude_bd_addr_seg -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_apu_0]
   exclude_bd_addr_seg -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_crf_0]
   exclude_bd_addr_seg -target_address_space [get_bd_addr_spaces static_region/aved/cips/CPM_PCIE_NOC_0] [get_bd_addr_segs static_region/aved/cips/NOC_PMC_AXI_0/pspmc_0_psv_fpd_afi_0]

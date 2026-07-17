@@ -971,7 +971,7 @@ proc create_hier_cell_noc { parentCell nameHier } {
   set axi_noc_mc_ddr4_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_mc_ddr4_0 ]
   set_property -dict [list \
     CONFIG.CONTROLLERTYPE {DDR4_SDRAM} \
-    CONFIG.MC0_CONFIG_NUM {config14} \
+    CONFIG.MC0_CONFIG_NUM {config17} \
     CONFIG.MC_CHAN_REGION1 {DDR_CH1_1} \
     CONFIG.MC_DATAWIDTH {72} \
     CONFIG.MC_EN_INTR_RESP {TRUE} \
@@ -979,7 +979,7 @@ proc create_hier_cell_noc { parentCell nameHier } {
     CONFIG.MC_MEMORY_DEVICETYPE {UDIMMs} \
     CONFIG.MC_MEMORY_SPEEDGRADE {DDR4-2666V(19-19-19)} \
     CONFIG.MC_MEMORY_TIMEPERIOD0 {800} \
-    CONFIG.MC_RANK {1} \
+    CONFIG.MC_RANK {2} \
     CONFIG.MC_ROWADDRESSWIDTH {17} \
     CONFIG.NUM_CLKS {0} \
     CONFIG.NUM_MC {1} \
