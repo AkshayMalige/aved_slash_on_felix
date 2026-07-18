@@ -65,6 +65,21 @@ connect_bd_net [get_bd_pins static_region/peripheral_aresetn2] [get_bd_pins slas
 connect_bd_net [get_bd_pins static_region/clk_out2]           [get_bd_pins service_layer/service_clk]
 connect_bd_net [get_bd_pins static_region/peripheral_aresetn1] [get_bd_pins service_layer/service_resetn]
 
+# ---- remove dangling top-level ports that are NOT FELIX board signals.
+#      The felix_cips base export left 9 static-region outputs exposed off-chip:
+#        - 5 are pure dead-ends: eos_0, pl3_ref_clk_0, pl3_resetn_0,
+#          resetn_pl_periph_0, clk_out1_2
+#        - 4 (clk_out1_0/1, Q_0/1) sit on the nets that ALSO feed the slash /
+#          service_layer clocks + resets connected just above; deleting the PORT
+#          keeps those internal connections intact -- it only drops the redundant
+#          off-chip export.
+#      Leaving them makes write_device_image fail DRC NSTD-2 (undefined
+#      IOSTANDARD, which CANNOT be waived) + UCIO-1 (no LOC). None are wired on
+#      the FLX-155 board (0 hits in the board pinout), so they are removed. ----
+foreach p {resetn_pl_periph_0 eos_0 clk_out1_0 clk_out1_1 clk_out1_2 Q_0 Q_1 pl3_resetn_0 pl3_ref_clk_0} {
+    catch {delete_bd_objs [get_bd_ports $p]}
+}
+
 # ---- re-route kernel NSI ports to the real DDR path (M01_INI -> ddr4_0/S01_INI).
 #      Baseline left them pointed at M02_INI/M03_INI, which are dead-ends
 #      (leftover from V80's 2-DDR-controller design; FELIX has 1). Give real
