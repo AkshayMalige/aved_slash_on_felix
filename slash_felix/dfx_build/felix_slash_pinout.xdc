@@ -281,7 +281,10 @@ set_property PACKAGE_PIN AN3 [get_ports {PCIE1_GT_0_grx_n[4]}]
 set_property PACKAGE_PIN AM1 [get_ports {PCIE1_GT_0_grx_n[5]}]
 set_property PACKAGE_PIN AL3 [get_ports {PCIE1_GT_0_grx_n[6]}]
 set_property PACKAGE_PIN AK1 [get_ports {PCIE1_GT_0_grx_n[7]}]
-# PCIe1 reference clock (100 MHz)
+# PCIe1 reference clock (100 MHz) -- LOCATION ONLY.
+# Do NOT create_clock here: the CPM5/PCIe hardblock already defines the
+# reference clock (the port carries FREQ_HZ=100MHz). A manual create_clock
+# redefines that primary clock -> "invalid primary clock redefinition /
+# invalid primary clock on hierarchical pin" timing CRITICAL WARNINGs.
 set_property PACKAGE_PIN AP10 [get_ports {gt_refclk1_0_clk_n}]
 set_property PACKAGE_PIN AP11 [get_ports {gt_refclk1_0_clk_p}]
-create_clock -period 10.0 -name pcie1_refclk [get_ports gt_refclk1_0_clk_p]
