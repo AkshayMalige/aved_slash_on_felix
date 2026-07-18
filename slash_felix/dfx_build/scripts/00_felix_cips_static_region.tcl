@@ -52,9 +52,10 @@ if { $list_projs eq "" } {
    create_project project_1 myproj -part xcvp1552-vsva3340-2MHP-e-S -force
 }
 
-# Register local IP repository (hw_discovery, uuid_rom, cmd_queue, axi4_full_passthrough)
+# Register local IP repository (hw_discovery, uuid_rom, cmd_queue, axi4_full_passthrough).
+# This script lives in dfx_build/scripts/, so iprepo is two levels up (slash_felix/iprepo).
 set_property ip_repo_paths \
-  [file normalize [file join $script_folder .. iprepo]] \
+  [file normalize [file join $script_folder .. .. iprepo]] \
   [current_project]
 update_ip_catalog -rebuild
 
