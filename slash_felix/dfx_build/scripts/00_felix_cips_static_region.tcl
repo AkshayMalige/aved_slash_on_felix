@@ -1,12 +1,4 @@
 
-################################################################
-# This is a generated script based on design: felix_cips
-#
-# Though there are limitations about the generated script,
-# the main purpose of this utility is to make learning
-# IP Integrator Tcl commands easier.
-################################################################
-
 namespace eval _tcl {
 proc get_script_folder {} {
    set script_path [file normalize [info script]]
@@ -17,9 +9,6 @@ proc get_script_folder {} {
 variable script_folder
 set script_folder [_tcl::get_script_folder]
 
-################################################################
-# Check if script is running in correct Vivado version.
-################################################################
 set scripts_vivado_version 2025.1
 set current_vivado_version [version -short]
 
@@ -36,39 +25,19 @@ if { [string first $scripts_vivado_version $current_vivado_version] == -1 } {
    return 1
 }
 
-################################################################
-# START
-################################################################
-
-# To test this script, run the following commands from Vivado Tcl console:
-# source felix_cips_script.tcl
-
-# If there is no project opened, this script will create a
-# project, but make sure you do not have an existing project
-# <./myproj/project_1.xpr> in the current working folder.
-
 set list_projs [get_projects -quiet]
 if { $list_projs eq "" } {
    create_project project_1 myproj -part xcvp1552-vsva3340-2MHP-e-S -force
 }
 
-# Register local IP repository (hw_discovery, uuid_rom, cmd_queue, axi4_full_passthrough).
-# This script lives in dfx_build/scripts/, so iprepo is two levels up (slash_felix/iprepo).
 set_property ip_repo_paths \
   [file normalize [file join $script_folder .. .. iprepo]] \
   [current_project]
 update_ip_catalog -rebuild
 
-
-# CHANGE DESIGN NAME HERE
 variable design_name
 set design_name felix_cips
 
-# If you do not already have an existing IP Integrator design open,
-# you can create a design using the following command:
-#    create_bd_design $design_name
-
-# Creating design if needed
 set errMsg ""
 set nRet 0
 
@@ -76,17 +45,11 @@ set cur_design [current_bd_design -quiet]
 set list_cells [get_bd_cells -quiet]
 
 if { ${design_name} eq "" } {
-   # USE CASES:
-   #    1) Design_name not set
 
    set errMsg "Please set the variable <design_name> to a non-empty value."
    set nRet 1
 
 } elseif { ${cur_design} ne "" && ${list_cells} eq "" } {
-   # USE CASES:
-   #    2): Current design opened AND is empty AND names same.
-   #    3): Current design opened AND is empty AND names diff; design_name NOT in project.
-   #    4): Current design opened AND is empty AND names diff; design_name exists in project.
 
    if { $cur_design ne $design_name } {
       common::send_gid_msg -ssname BD::TCL -id 2001 -severity "INFO" "Changing value of <design_name> from <$design_name> to <$cur_design> since current design is empty."
@@ -95,23 +58,15 @@ if { ${design_name} eq "" } {
    common::send_gid_msg -ssname BD::TCL -id 2002 -severity "INFO" "Constructing design in IPI design <$cur_design>..."
 
 } elseif { ${cur_design} ne "" && $list_cells ne "" && $cur_design eq $design_name } {
-   # USE CASES:
-   #    5) Current design opened AND has components AND same names.
 
    set errMsg "Design <$design_name> already exists in your project, please set the variable <design_name> to another value."
    set nRet 1
 } elseif { [get_files -quiet ${design_name}.bd] ne "" } {
-   # USE CASES: 
-   #    6) Current opened design, has components, but diff names, design_name exists in project.
-   #    7) No opened design, design_name exists in project.
 
    set errMsg "Design <$design_name> already exists in your project, please set the variable <design_name> to another value."
    set nRet 2
 
 } else {
-   # USE CASES:
-   #    8) No opened design, design_name not in project.
-   #    9) Current opened design, has components, but diff names, design_name not in project.
 
    common::send_gid_msg -ssname BD::TCL -id 2003 -severity "INFO" "Currently there is no design <$design_name> in project, so creating one..."
 
@@ -130,9 +85,6 @@ if { $nRet != 0 } {
 }
 
 set bCheckIPsPassed 1
-##################################################################
-# CHECK IPs
-##################################################################
 set bCheckIPs 1
 if { $bCheckIPs == 1 } {
    set list_check_ips "\ 
@@ -174,12 +126,6 @@ if { $bCheckIPsPassed != 1 } {
   return 3
 }
 
-##################################################################
-# DESIGN PROCs
-##################################################################
-
-
-# Hierarchical cell: pcie_mgmt_pdi_reset
 proc create_hier_cell_pcie_mgmt_pdi_reset { parentCell nameHier } {
 
   variable script_folder
@@ -189,53 +135,40 @@ proc create_hier_cell_pcie_mgmt_pdi_reset { parentCell nameHier } {
      return
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-  # Create cell and set as current instance
   set hier_obj [create_bd_cell -type hier $nameHier]
   current_bd_instance $hier_obj
 
-  # Create interface pins
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:aximm_rtl:1.0 s_axi
 
-
-  # Create pins
   create_bd_pin -dir I -type rst resetn
   create_bd_pin -dir I -type clk clk
   create_bd_pin -dir I -from 0 -to 0 resetn_in
 
-  # Create instance: and_0, and set properties
   set and_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:util_reduced_logic:2.0 and_0 ]
   set_property CONFIG.C_SIZE {2} $and_0
 
-
-  # Create instance: inv, and set properties
   set inv [ create_bd_cell -type ip -vlnv xilinx.com:ip:util_vector_logic:2.0 inv ]
   set_property -dict [list \
     CONFIG.C_OPERATION {not} \
     CONFIG.C_SIZE {1} \
   ] $inv
 
-
-  # Create instance: pcie_mgmt_pdi_reset_gpio, and set properties
   set pcie_mgmt_pdi_reset_gpio [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 pcie_mgmt_pdi_reset_gpio ]
   set_property -dict [list \
     CONFIG.C_ALL_INPUTS {0} \
@@ -247,14 +180,10 @@ proc create_hier_cell_pcie_mgmt_pdi_reset { parentCell nameHier } {
     CONFIG.C_IS_DUAL {1} \
   ] $pcie_mgmt_pdi_reset_gpio
 
-
-  # Create instance: ccat, and set properties
   set ccat [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 ccat ]
 
-  # Create interface connections
   connect_bd_intf_net -intf_net S_AXI_0_1 [get_bd_intf_pins s_axi] [get_bd_intf_pins pcie_mgmt_pdi_reset_gpio/S_AXI]
 
-  # Create port connections
   connect_bd_net -net Op1_1_1  [get_bd_pins resetn_in] \
   [get_bd_pins inv/Op1]
   connect_bd_net -net axi_gpio_0_gpio_io_o  [get_bd_pins pcie_mgmt_pdi_reset_gpio/gpio_io_o] \
@@ -270,11 +199,9 @@ proc create_hier_cell_pcie_mgmt_pdi_reset { parentCell nameHier } {
   connect_bd_net -net xlconcat_0_dout  [get_bd_pins ccat/dout] \
   [get_bd_pins and_0/Op1]
 
-  # Restore current instance
   current_bd_instance $oldCurInst
 }
 
-# Hierarchical cell: clock_reset
 proc create_hier_cell_clock_reset { parentCell nameHier } {
 
   variable script_folder
@@ -284,35 +211,27 @@ proc create_hier_cell_clock_reset { parentCell nameHier } {
      return
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-  # Create cell and set as current instance
   set hier_obj [create_bd_cell -type hier $nameHier]
   current_bd_instance $hier_obj
 
-  # Create interface pins
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:aximm_rtl:1.0 s_axi_pcie_mgmt_pdi_reset
 
-
-  # Create pins
   create_bd_pin -dir O -from 0 -to 0 -type rst resetn_pl_periph
   create_bd_pin -dir O -from 0 -to 0 -type rst reset_pl_ic
   create_bd_pin -dir I -type clk clk_freerun
@@ -329,30 +248,20 @@ proc create_hier_cell_clock_reset { parentCell nameHier } {
   create_bd_pin -dir I -type clk clk_pl
   create_bd_pin -dir I -type rst resetn_pl_axi
 
-  # Create instance: proc_sys_reset_0, and set properties
   set proc_sys_reset_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_0 ]
   set_property CONFIG.C_EXT_RST_WIDTH {1} $proc_sys_reset_0
 
-
-  # Create instance: pcie_mgmt_pdi_reset
   create_hier_cell_pcie_mgmt_pdi_reset $hier_obj pcie_mgmt_pdi_reset
 
-  # Create instance: proc_sys_reset_1, and set properties
   set proc_sys_reset_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_1 ]
   set_property CONFIG.C_EXT_RST_WIDTH {1} $proc_sys_reset_1
 
-
-  # Create instance: proc_sys_reset_2, and set properties
   set proc_sys_reset_2 [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_2 ]
   set_property CONFIG.C_EXT_RST_WIDTH {1} $proc_sys_reset_2
 
-
-  # Create instance: proc_sys_reset_3, and set properties
   set proc_sys_reset_3 [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_3 ]
   set_property CONFIG.C_EXT_RST_WIDTH {1} $proc_sys_reset_3
 
-
-  # Create instance: usr_clk_wiz, and set properties
   set usr_clk_wiz [ create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wizard:1.0 usr_clk_wiz ]
   set_property -dict [list \
     CONFIG.CLKOUT_DRIVES {BUFG,BUFG,BUFG,BUFG,BUFG,BUFG,BUFG} \
@@ -367,11 +276,8 @@ proc create_hier_cell_clock_reset { parentCell nameHier } {
     CONFIG.USE_LOCKED {true} \
   ] $usr_clk_wiz
 
-
-  # Create interface connections
   connect_bd_intf_net -intf_net Conn1 [get_bd_intf_pins s_axi_pcie_mgmt_pdi_reset] [get_bd_intf_pins pcie_mgmt_pdi_reset/s_axi]
 
-  # Create port connections
   connect_bd_net -net Op1_1_1  [get_bd_pins dma_axi_aresetn] \
   [get_bd_pins pcie_mgmt_pdi_reset/resetn_in]
   connect_bd_net -net clk_in1_0_1  [get_bd_pins clk_freerun] \
@@ -413,11 +319,9 @@ proc create_hier_cell_clock_reset { parentCell nameHier } {
   [get_bd_pins proc_sys_reset_0/slowest_sync_clk] \
   [get_bd_pins pcie_mgmt_pdi_reset/clk]
 
-  # Restore current instance
   current_bd_instance $oldCurInst
 }
 
-# Hierarchical cell: base_logic
 proc create_hier_cell_base_logic { parentCell nameHier } {
 
   variable script_folder
@@ -427,31 +331,25 @@ proc create_hier_cell_base_logic { parentCell nameHier } {
      return
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-  # Create cell and set as current instance
   set hier_obj [create_bd_cell -type hier $nameHier]
   current_bd_instance $hier_obj
 
-  # Create interface pins
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 m_axi_pcie_mgmt_pdi_reset
 
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:aximm_rtl:1.0 s_axi_pcie_mgmt_slr0
@@ -460,8 +358,6 @@ proc create_hier_cell_base_logic { parentCell nameHier } {
 
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:aximm_rtl:1.0 s_axi_rpu
 
-
-  # Create pins
   create_bd_pin -dir I -type clk clk_pl
   create_bd_pin -dir I -type rst resetn_pl_ic
   create_bd_pin -dir I -type clk clk_pcie
@@ -469,32 +365,24 @@ proc create_hier_cell_base_logic { parentCell nameHier } {
   create_bd_pin -dir O -type intr irq_gcq_m2r
   create_bd_pin -dir I -type rst resetn_pl_periph
 
-  # Create instance: rpu_sc, and set properties
   set rpu_sc [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 rpu_sc ]
   set_property -dict [list \
     CONFIG.NUM_MI {1} \
     CONFIG.NUM_SI {1} \
   ] $rpu_sc
 
-
-  # Create instance: pcie_slr0_mgmt_sc, and set properties
   set pcie_slr0_mgmt_sc [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 pcie_slr0_mgmt_sc ]
   set_property -dict [list \
     CONFIG.NUM_MI {4} \
     CONFIG.NUM_SI {1} \
   ] $pcie_slr0_mgmt_sc
 
-
-  # Create instance: hw_discovery, and set properties
   set hw_discovery [ create_bd_cell -type ip -vlnv xilinx.com:ip:hw_discovery:1.0 hw_discovery ]
 
-  # Create instance: uuid_rom, and set properties
   set uuid_rom [ create_bd_cell -type ip -vlnv xilinx.com:ip:shell_utils_uuid_rom:2.0 uuid_rom ]
 
-  # Create instance: gcq_m2r, and set properties
   set gcq_m2r [ create_bd_cell -type ip -vlnv xilinx.com:ip:cmd_queue:2.0 gcq_m2r ]
 
-  # Create interface connections
   connect_bd_intf_net -intf_net Conn1 [get_bd_intf_pins pcie_slr0_mgmt_sc/M03_AXI] [get_bd_intf_pins m_axi_pcie_mgmt_pdi_reset]
   connect_bd_intf_net -intf_net Conn2 [get_bd_intf_pins pcie_slr0_mgmt_sc/S00_AXI] [get_bd_intf_pins s_axi_pcie_mgmt_slr0]
   connect_bd_intf_net -intf_net Conn3 [get_bd_intf_pins hw_discovery/s_pcie4_cfg_ext] [get_bd_intf_pins pcie_cfg_ext]
@@ -504,7 +392,6 @@ proc create_hier_cell_base_logic { parentCell nameHier } {
   connect_bd_intf_net -intf_net smartconnect_1_M01_AXI [get_bd_intf_pins pcie_slr0_mgmt_sc/M01_AXI] [get_bd_intf_pins uuid_rom/S_AXI]
   connect_bd_intf_net -intf_net smartconnect_1_M02_AXI [get_bd_intf_pins pcie_slr0_mgmt_sc/M02_AXI] [get_bd_intf_pins gcq_m2r/S00_AXI]
 
-  # Create port connections
   connect_bd_net -net aclk_1_1  [get_bd_pins clk_pl] \
   [get_bd_pins pcie_slr0_mgmt_sc/aclk] \
   [get_bd_pins rpu_sc/aclk] \
@@ -525,11 +412,9 @@ proc create_hier_cell_base_logic { parentCell nameHier } {
   connect_bd_net -net cmd_queue_0_irq_sq  [get_bd_pins gcq_m2r/irq_sq] \
   [get_bd_pins irq_gcq_m2r]
 
-  # Restore current instance
   current_bd_instance $oldCurInst
 }
 
-# Hierarchical cell: virt_noc
 proc create_hier_cell_virt_noc { parentCell nameHier } {
 
   variable script_folder
@@ -539,31 +424,25 @@ proc create_hier_cell_virt_noc { parentCell nameHier } {
      return
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-  # Create cell and set as current instance
   set hier_obj [create_bd_cell -type hier $nameHier]
   current_bd_instance $hier_obj
 
-  # Create interface pins
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:inimm_rtl:1.0 S00_INI
 
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:inimm_rtl:1.0 M00_INI
@@ -584,10 +463,6 @@ proc create_hier_cell_virt_noc { parentCell nameHier } {
 
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:inimm_rtl:1.0 M00_INI4
 
-
-  # Create pins
-
-  # Create instance: axi_noc_3, and set properties
   set axi_noc_3 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_3 ]
   set_property -dict [list \
     CONFIG.NUM_MI {0} \
@@ -596,12 +471,10 @@ proc create_hier_cell_virt_noc { parentCell nameHier } {
     CONFIG.NUM_SI {0} \
   ] $axi_noc_3
 
-
   set_property -dict [ list \
    CONFIG.CONNECTIONS {M00_INI {read_bw {0} write_bw {0} initial_boot {true}}} \
  ] [get_bd_intf_pins /static_region/virt_noc/axi_noc_3/S00_INI]
 
-  # Create instance: axi_noc_4, and set properties
   set axi_noc_4 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_4 ]
   set_property -dict [list \
     CONFIG.NUM_MI {0} \
@@ -610,12 +483,10 @@ proc create_hier_cell_virt_noc { parentCell nameHier } {
     CONFIG.NUM_SI {0} \
   ] $axi_noc_4
 
-
   set_property -dict [ list \
    CONFIG.CONNECTIONS {M00_INI {read_bw {0} write_bw {0} initial_boot {true}}} \
  ] [get_bd_intf_pins /static_region/virt_noc/axi_noc_4/S00_INI]
 
-  # Create instance: axi_noc_1, and set properties
   set axi_noc_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_1 ]
   set_property -dict [list \
     CONFIG.NUM_MI {0} \
@@ -624,12 +495,10 @@ proc create_hier_cell_virt_noc { parentCell nameHier } {
     CONFIG.NUM_SI {0} \
   ] $axi_noc_1
 
-
   set_property -dict [ list \
    CONFIG.CONNECTIONS {M00_INI {read_bw {0} write_bw {0} initial_boot {true}}} \
  ] [get_bd_intf_pins /static_region/virt_noc/axi_noc_1/S00_INI]
 
-  # Create instance: axi_noc_2, and set properties
   set axi_noc_2 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_2 ]
   set_property -dict [list \
     CONFIG.NUM_MI {0} \
@@ -638,12 +507,10 @@ proc create_hier_cell_virt_noc { parentCell nameHier } {
     CONFIG.NUM_SI {0} \
   ] $axi_noc_2
 
-
   set_property -dict [ list \
    CONFIG.CONNECTIONS {M00_INI {read_bw {0} write_bw {0} initial_boot {true}}} \
  ] [get_bd_intf_pins /static_region/virt_noc/axi_noc_2/S00_INI]
 
-  # Create instance: axi_noc_0, and set properties
   set axi_noc_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_0 ]
   set_property -dict [list \
     CONFIG.NUM_MI {0} \
@@ -652,12 +519,10 @@ proc create_hier_cell_virt_noc { parentCell nameHier } {
     CONFIG.NUM_SI {0} \
   ] $axi_noc_0
 
-
   set_property -dict [ list \
    CONFIG.CONNECTIONS {M00_INI {read_bw {0} write_bw {0} initial_boot {true}}} \
  ] [get_bd_intf_pins /static_region/virt_noc/axi_noc_0/S00_INI]
 
-  # Create interface connections
   connect_bd_intf_net -intf_net Conn1 [get_bd_intf_pins axi_noc_0/S00_INI] [get_bd_intf_pins S00_INI]
   connect_bd_intf_net -intf_net Conn2 [get_bd_intf_pins axi_noc_0/M00_INI] [get_bd_intf_pins M00_INI]
   connect_bd_intf_net -intf_net Conn3 [get_bd_intf_pins axi_noc_3/S00_INI] [get_bd_intf_pins S00_INI3]
@@ -669,11 +534,9 @@ proc create_hier_cell_virt_noc { parentCell nameHier } {
   connect_bd_intf_net -intf_net Conn9 [get_bd_intf_pins axi_noc_1/M00_INI] [get_bd_intf_pins M00_INI1]
   connect_bd_intf_net -intf_net Conn10 [get_bd_intf_pins axi_noc_4/M00_INI] [get_bd_intf_pins M00_INI4]
 
-  # Restore current instance
   current_bd_instance $oldCurInst
 }
 
-# Hierarchical cell: clk_rst_shell
 proc create_hier_cell_clk_rst_shell { parentCell nameHier } {
 
   variable script_folder
@@ -683,35 +546,27 @@ proc create_hier_cell_clk_rst_shell { parentCell nameHier } {
      return
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-  # Create cell and set as current instance
   set hier_obj [create_bd_cell -type hier $nameHier]
   current_bd_instance $hier_obj
 
-  # Create interface pins
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:inimm_rtl:1.0 S00_INI
 
-
-  # Create pins
   create_bd_pin -dir O -from 0 -to 0 -type data service_arstn
   create_bd_pin -dir O -from 0 -to 0 -type data slash_arstn
   create_bd_pin -dir O -type clk slash_clk
@@ -720,15 +575,12 @@ proc create_hier_cell_clk_rst_shell { parentCell nameHier } {
   create_bd_pin -dir O -type clk service_clk
   create_bd_pin -dir I -type clk refclk
 
-  # Create instance: smartconnect_0, and set properties
   set smartconnect_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 smartconnect_0 ]
   set_property -dict [list \
     CONFIG.NUM_MI {2} \
     CONFIG.NUM_SI {1} \
   ] $smartconnect_0
 
-
-  # Create instance: clk_wizard_service, and set properties
   set clk_wizard_service [ create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wizard:1.0 clk_wizard_service ]
   set_property -dict [list \
     CONFIG.CLKOUT_DRIVES {BUFG,BUFG,BUFG,BUFG,BUFG,BUFG,BUFG} \
@@ -743,20 +595,15 @@ proc create_hier_cell_clk_rst_shell { parentCell nameHier } {
     CONFIG.USE_DYN_RECONFIG {true} \
   ] $clk_wizard_service
 
-
-  # Create instance: proc_sys_reset_0, and set properties
   set proc_sys_reset_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_0 ]
 
-  # Create instance: proc_sys_reset_1, and set properties
   set proc_sys_reset_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_1 ]
 
-  # Create instance: axi_noc_0, and set properties
   set axi_noc_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_0 ]
   set_property -dict [list \
     CONFIG.NUM_NSI {1} \
     CONFIG.NUM_SI {0} \
   ] $axi_noc_0
-
 
   set_property -dict [ list \
    CONFIG.APERTURES {{0x201_8000_0000 1G}} \
@@ -771,7 +618,6 @@ proc create_hier_cell_clk_rst_shell { parentCell nameHier } {
    CONFIG.ASSOCIATED_BUSIF {M00_AXI} \
  ] [get_bd_pins /static_region/clk_rst_shell/axi_noc_0/aclk0]
 
-  # Create instance: clk_wizard_slash, and set properties
   set clk_wizard_slash [ create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wizard:1.0 clk_wizard_slash ]
   set_property -dict [list \
     CONFIG.CLKOUT_DRIVES {BUFG,BUFG,BUFG,BUFG,BUFG,BUFG,BUFG} \
@@ -786,46 +632,35 @@ proc create_hier_cell_clk_rst_shell { parentCell nameHier } {
     CONFIG.USE_DYN_RECONFIG {true} \
   ] $clk_wizard_slash
 
-
-  # Create instance: service_rst_conv_in, and set properties
   set service_rst_conv_in [ create_bd_cell -type inline_hdl -vlnv xilinx.com:inline_hdl:ilreduced_logic:1.0 service_rst_conv_in ]
   set_property -dict [list \
     CONFIG.C_OPERATION {or} \
     CONFIG.C_SIZE {1} \
   ] $service_rst_conv_in
 
-
-  # Create instance: service_rst_pipe_slr0, and set properties
   set service_rst_pipe_slr0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:c_shift_ram:12.0 service_rst_pipe_slr0 ]
   set_property -dict [list \
     CONFIG.Depth {1} \
     CONFIG.Width {1} \
   ] $service_rst_pipe_slr0
 
-
-  # Create instance: slash_rst_conv_in, and set properties
   set slash_rst_conv_in [ create_bd_cell -type inline_hdl -vlnv xilinx.com:inline_hdl:ilreduced_logic:1.0 slash_rst_conv_in ]
   set_property -dict [list \
     CONFIG.C_OPERATION {or} \
     CONFIG.C_SIZE {1} \
   ] $slash_rst_conv_in
 
-
-  # Create instance: slash_rst_pipe_slr0, and set properties
   set slash_rst_pipe_slr0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:c_shift_ram:12.0 slash_rst_pipe_slr0 ]
   set_property -dict [list \
     CONFIG.Depth {1} \
     CONFIG.Width {1} \
   ] $slash_rst_pipe_slr0
 
-
-  # Create interface connections
   connect_bd_intf_net -intf_net Conn1 [get_bd_intf_pins axi_noc_0/S00_INI] [get_bd_intf_pins S00_INI]
   connect_bd_intf_net -intf_net axi_noc_1_M00_AXI [get_bd_intf_pins axi_noc_0/M00_AXI] [get_bd_intf_pins smartconnect_0/S00_AXI]
   connect_bd_intf_net -intf_net smartconnect_0_M00_AXI [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins clk_wizard_slash/s_axi_lite]
   connect_bd_intf_net -intf_net smartconnect_0_M01_AXI [get_bd_intf_pins smartconnect_0/M01_AXI] [get_bd_intf_pins clk_wizard_service/s_axi_lite]
 
-  # Create port connections
   connect_bd_net -net aclk0_1_1  [get_bd_pins pl0_ref_clk] \
   [get_bd_pins axi_noc_0/aclk0] \
   [get_bd_pins smartconnect_0/aclk] \
@@ -865,11 +700,9 @@ proc create_hier_cell_clk_rst_shell { parentCell nameHier } {
   connect_bd_net -net slash_rst_pipe_slr0_Q  [get_bd_pins slash_rst_pipe_slr0/Q] \
   [get_bd_pins slash_arstn]
 
-  # Restore current instance
   current_bd_instance $oldCurInst
 }
 
-# Hierarchical cell: noc
 proc create_hier_cell_noc { parentCell nameHier } {
 
   variable script_folder
@@ -879,31 +712,25 @@ proc create_hier_cell_noc { parentCell nameHier } {
      return
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-  # Create cell and set as current instance
   set hier_obj [create_bd_cell -type hier $nameHier]
   current_bd_instance $hier_obj
 
-  # Create interface pins
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 M00_AXI_0
 
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 M01_AXI_0
@@ -958,8 +785,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
 
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:inimm_rtl:1.0 S23_INI_0
 
-
-  # Create pins
   create_bd_pin -dir I -type clk aclk4_0
   create_bd_pin -dir I -type clk aclk6_0
   create_bd_pin -dir I -type clk aclk5_0
@@ -968,7 +793,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
   create_bd_pin -dir I -type clk aclk0_0
   create_bd_pin -dir I -type clk aclk1_0
 
-  # Create instance: axi_noc_mc_ddr4_0, and set properties
   set axi_noc_mc_ddr4_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_mc_ddr4_0 ]
   set_property -dict [list \
     CONFIG.CONTROLLERTYPE {DDR4_SDRAM} \
@@ -991,7 +815,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
     CONFIG.NUM_SI {0} \
   ] $axi_noc_mc_ddr4_0
 
-
   set_property -dict [ list \
    CONFIG.CONNECTIONS {MC_0 {read_bw {1000} write_bw {1000} initial_boot {false}}} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_mc_ddr4_0/S00_INI]
@@ -1000,7 +823,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
    CONFIG.CONNECTIONS {MC_1 {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}}} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_mc_ddr4_0/S01_INI]
 
-  # Create instance: axi_noc_cips, and set properties
   set axi_noc_cips [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_cips ]
   set_property -dict [list \
     CONFIG.NUM_CLKS {7} \
@@ -1010,7 +832,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
     CONFIG.NUM_SI {4} \
     CONFIG.SI_SIDEBAND_PINS {} \
   ] $axi_noc_cips
-
 
   set_property -dict [ list \
    CONFIG.APERTURES {{0x201_0000_0000 32M}} \
@@ -1149,7 +970,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
    CONFIG.ASSOCIATED_BUSIF {} \
  ] [get_bd_pins /static_region/noc/axi_noc_cips/aclk5]
 
-  # Create interface connections
   connect_bd_intf_net -intf_net Conn1 [get_bd_intf_pins axi_noc_cips/M00_AXI] [get_bd_intf_pins M00_AXI_0]
   connect_bd_intf_net -intf_net Conn2 [get_bd_intf_pins axi_noc_cips/M01_AXI] [get_bd_intf_pins M01_AXI_0]
   connect_bd_intf_net -intf_net Conn3 [get_bd_intf_pins axi_noc_mc_ddr4_0/sys_clk0] [get_bd_intf_pins sys_clk0_0]
@@ -1180,7 +1000,6 @@ proc create_hier_cell_noc { parentCell nameHier } {
   connect_bd_intf_net -intf_net axi_noc_cips_M00_INI [get_bd_intf_pins axi_noc_cips/M00_INI] [get_bd_intf_pins axi_noc_mc_ddr4_0/S00_INI]
   connect_bd_intf_net -intf_net axi_noc_cips_M01_INI [get_bd_intf_pins axi_noc_cips/M01_INI] [get_bd_intf_pins axi_noc_mc_ddr4_0/S01_INI]
 
-  # Create port connections
   connect_bd_net -net aclk0_0_1  [get_bd_pins aclk0_0] \
   [get_bd_pins axi_noc_cips/aclk0]
   connect_bd_net -net aclk1_0_1  [get_bd_pins aclk1_0] \
@@ -1196,11 +1015,9 @@ proc create_hier_cell_noc { parentCell nameHier } {
   connect_bd_net -net aclk6_0_1  [get_bd_pins aclk6_0] \
   [get_bd_pins axi_noc_cips/aclk6]
 
-  # Restore current instance
   current_bd_instance $oldCurInst
 }
 
-# Hierarchical cell: aved
 proc create_hier_cell_aved { parentCell nameHier } {
 
   variable script_folder
@@ -1210,31 +1027,25 @@ proc create_hier_cell_aved { parentCell nameHier } {
      return
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-  # Create cell and set as current instance
   set hier_obj [create_bd_cell -type hier $nameHier]
   current_bd_instance $hier_obj
 
-  # Create interface pins
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 LPD_AXI_NOC_0
 
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 PMC_NOC_AXI_0
@@ -1253,8 +1064,6 @@ proc create_hier_cell_aved { parentCell nameHier } {
 
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 gt_pcie_refclk
 
-
-  # Create pins
   create_bd_pin -dir O -type clk pl3_ref_clk
   create_bd_pin -dir O -type rst pl3_resetn
   create_bd_pin -dir O -type clk lpd_axi_noc_clk
@@ -1268,7 +1077,6 @@ proc create_hier_cell_aved { parentCell nameHier } {
   create_bd_pin -dir O pl0_resetn
   create_bd_pin -dir O pl0_ref_clk
 
-  # Create instance: cips, and set properties
   set cips [ create_bd_cell -type ip -vlnv xilinx.com:ip:versal_cips:3.4 cips ]
   set_property -dict [list \
     CONFIG.BOOT_MODE {Custom} \
@@ -1497,14 +1305,10 @@ proc create_hier_cell_aved { parentCell nameHier } {
     CONFIG.PS_PMC_CONFIG_APPLIED {1} \
   ] $cips
 
-
-  # Create instance: base_logic
   create_hier_cell_base_logic $hier_obj base_logic
 
-  # Create instance: clock_reset
   create_hier_cell_clock_reset $hier_obj clock_reset
 
-  # Create interface connections
   connect_bd_intf_net -intf_net Conn1 [get_bd_intf_pins cips/NOC_PMC_AXI_0] [get_bd_intf_pins NOC_PMC_AXI_0]
   connect_bd_intf_net -intf_net Conn2 [get_bd_intf_pins cips/NOC_CPM_PCIE_0] [get_bd_intf_pins NOC_CPM_PCIE_0]
   connect_bd_intf_net -intf_net Conn3 [get_bd_intf_pins cips/gt_refclk1] [get_bd_intf_pins gt_pcie_refclk]
@@ -1518,7 +1322,6 @@ proc create_hier_cell_aved { parentCell nameHier } {
   connect_bd_intf_net -intf_net cips_PMC_NOC_AXI_0 [get_bd_intf_pins PMC_NOC_AXI_0] [get_bd_intf_pins cips/PMC_NOC_AXI_0]
   connect_bd_intf_net -intf_net cips_pcie1_cfg_ext [get_bd_intf_pins cips/pcie1_cfg_ext] [get_bd_intf_pins base_logic/pcie_cfg_ext]
 
-  # Create port connections
   connect_bd_net -net base_logic_irq_gcq_m2r  [get_bd_pins base_logic/irq_gcq_m2r] \
   [get_bd_pins cips/pl_ps_irq0]
   connect_bd_net -net cips_cpm_pcie_noc_axi0_clk  [get_bd_pins cips/cpm_pcie_noc_axi0_clk] \
@@ -1565,11 +1368,9 @@ proc create_hier_cell_aved { parentCell nameHier } {
   connect_bd_net -net dma_axi_aresetn_1  [get_bd_pins cips/dma1_axi_aresetn] \
   [get_bd_pins clock_reset/dma_axi_aresetn]
 
-  # Restore current instance
   current_bd_instance $oldCurInst
 }
 
-# Hierarchical cell: static_region
 proc create_hier_cell_static_region { parentCell nameHier } {
 
   variable script_folder
@@ -1579,31 +1380,25 @@ proc create_hier_cell_static_region { parentCell nameHier } {
      return
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-  # Create cell and set as current instance
   set hier_obj [create_bd_cell -type hier $nameHier]
   current_bd_instance $hier_obj
 
-  # Create interface pins
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:gt_rtl:1.0 gt_pciea1
 
   create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 gt_pcie_refclk
@@ -1638,8 +1433,6 @@ proc create_hier_cell_static_region { parentCell nameHier } {
 
   create_bd_intf_pin -mode Master -vlnv xilinx.com:interface:inimm_rtl:1.0 M00_INI4
 
-
-  # Create pins
   create_bd_pin -dir O -type clk pl3_ref_clk
   create_bd_pin -dir O -type rst pl3_resetn
   create_bd_pin -dir O eos_0
@@ -1651,13 +1444,10 @@ proc create_hier_cell_static_region { parentCell nameHier } {
   create_bd_pin -dir O -type clk clk_out1
   create_bd_pin -dir O -from 0 -to 0 -type rst resetn_pl_periph_0
 
-  # Create instance: aved
   create_hier_cell_aved $hier_obj aved
 
-  # Create instance: noc
   create_hier_cell_noc $hier_obj noc
 
-  # Create instance: axi_noc_1, and set properties
   set axi_noc_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_1 ]
   set_property -dict [list \
     CONFIG.MI_SIDEBAND_PINS {} \
@@ -1665,7 +1455,6 @@ proc create_hier_cell_static_region { parentCell nameHier } {
     CONFIG.NUM_NSI {1} \
     CONFIG.NUM_SI {0} \
   ] $axi_noc_1
-
 
   set_property -dict [ list \
    CONFIG.CATEGORY {ps_pcie} \
@@ -1679,10 +1468,8 @@ proc create_hier_cell_static_region { parentCell nameHier } {
    CONFIG.ASSOCIATED_BUSIF {M00_AXI} \
  ] [get_bd_pins /static_region/axi_noc_1/aclk0]
 
-  # Create instance: clk_rst_shell
   create_hier_cell_clk_rst_shell $hier_obj clk_rst_shell
 
-  # Create instance: clk_wizard_0, and set properties
   set clk_wizard_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wizard:1.0 clk_wizard_0 ]
   set_property -dict [list \
     CONFIG.CLKOUT_DRIVES {BUFG,BUFG,BUFG,BUFG,BUFG,BUFG,BUFG} \
@@ -1696,11 +1483,8 @@ proc create_hier_cell_static_region { parentCell nameHier } {
     CONFIG.CLKOUT_USED {true,false,false,false,false,false,false} \
   ] $clk_wizard_0
 
-
-  # Create instance: virt_noc
   create_hier_cell_virt_noc $hier_obj virt_noc
 
-  # Create interface connections
   connect_bd_intf_net -intf_net Conn1 [get_bd_intf_pins axi_noc_1/S00_INI] [get_bd_intf_pins S00_INI6]
   connect_bd_intf_net -intf_net Conn2 [get_bd_intf_pins noc/sys_clk0_0] [get_bd_intf_pins sys_clk0_0]
   connect_bd_intf_net -intf_net Conn3 [get_bd_intf_pins aved/gt_pcie_refclk] [get_bd_intf_pins gt_pcie_refclk]
@@ -1727,7 +1511,6 @@ proc create_hier_cell_static_region { parentCell nameHier } {
   connect_bd_intf_net -intf_net noc_M00_AXI_0 [get_bd_intf_pins noc/M00_AXI_0] [get_bd_intf_pins aved/s_axi_pcie_mgmt_slr0]
   connect_bd_intf_net -intf_net noc_M06_INI_0 [get_bd_intf_pins noc/M06_INI_0] [get_bd_intf_pins clk_rst_shell/S00_INI]
 
-  # Create port connections
   connect_bd_net -net aved_cpm_pcie_noc_axi1_clk  [get_bd_pins aved/cpm_pcie_noc_axi1_clk] \
   [get_bd_pins noc/aclk1_0]
   connect_bd_net -net aved_lpd_axi_noc_clk  [get_bd_pins aved/lpd_axi_noc_clk] \
@@ -1769,13 +1552,9 @@ proc create_hier_cell_static_region { parentCell nameHier } {
   [get_bd_pins clk_out1] \
   [get_bd_pins noc/aclk5_0]
 
-  # Restore current instance
   current_bd_instance $oldCurInst
 }
 
-
-# Procedure to create entire design; Provide argument to make
-# procedure reusable. If parentCell is "", will use root.
 proc create_root_design { parentCell } {
 
   variable script_folder
@@ -1785,28 +1564,22 @@ proc create_root_design { parentCell } {
      set parentCell [get_bd_cells /]
   }
 
-  # Get object for parentCell
   set parentObj [get_bd_cells $parentCell]
   if { $parentObj == "" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2090 -severity "ERROR" "Unable to find parent cell <$parentCell>!"}
      return
   }
 
-  # Make sure parentObj is hier blk
   set parentType [get_property TYPE $parentObj]
   if { $parentType ne "hier" } {
      catch {common::send_gid_msg -ssname BD::TCL -id 2091 -severity "ERROR" "Parent <$parentObj> has TYPE = <$parentType>. Expected to be <hier>."}
      return
   }
 
-  # Save current instance; Restore later
   set oldCurInst [current_bd_instance .]
 
-  # Set parent object as current
   current_bd_instance $parentObj
 
-
-  # Create interface ports
   set PCIE1_GT_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gt_rtl:1.0 PCIE1_GT_0 ]
 
   set gt_refclk1_0 [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 gt_refclk1_0 ]
@@ -1844,8 +1617,6 @@ proc create_root_design { parentCell } {
 
   set M00_INI_4 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:inimm_rtl:1.0 M00_INI_4 ]
 
-
-  # Create ports
   set pl3_ref_clk_0 [ create_bd_port -dir O -type clk pl3_ref_clk_0 ]
   set pl3_resetn_0 [ create_bd_port -dir O -type rst pl3_resetn_0 ]
   set eos_0 [ create_bd_port -dir O eos_0 ]
@@ -1856,10 +1627,8 @@ proc create_root_design { parentCell } {
   set clk_out1_2 [ create_bd_port -dir O -type clk clk_out1_2 ]
   set resetn_pl_periph_0 [ create_bd_port -dir O -from 0 -to 0 -type rst resetn_pl_periph_0 ]
 
-  # Create instance: static_region
   create_hier_cell_static_region [current_bd_instance .] static_region
 
-  # Create interface connections
   connect_bd_intf_net -intf_net S00_INI_1_1 [get_bd_intf_ports S00_INI_1] [get_bd_intf_pins static_region/S00_INI6]
   connect_bd_intf_net -intf_net S00_INI_3_1 [get_bd_intf_ports S00_INI_3] [get_bd_intf_pins static_region/S00_INI1]
   connect_bd_intf_net -intf_net S00_INI_4_1 [get_bd_intf_ports S00_INI_4] [get_bd_intf_pins static_region/S00_INI2]
@@ -1878,7 +1647,6 @@ proc create_root_design { parentCell } {
   connect_bd_intf_net -intf_net static_region_M05_INI_0 [get_bd_intf_ports M05_INI_0] [get_bd_intf_pins static_region/M05_INI_0]
   connect_bd_intf_net -intf_net sys_clk0_0_0_1 [get_bd_intf_ports sys_clk0_0_0] [get_bd_intf_pins static_region/sys_clk0_0]
 
-  # Create port connections
   connect_bd_net -net cips_eos  [get_bd_pins static_region/eos_0] \
   [get_bd_ports eos_0]
   connect_bd_net -net cips_pl3_ref_clk  [get_bd_pins static_region/pl3_ref_clk] \
@@ -1898,23 +1666,12 @@ proc create_root_design { parentCell } {
   connect_bd_net -net static_region_resetn_pl_periph_0  [get_bd_pins static_region/resetn_pl_periph_0] \
   [get_bd_ports resetn_pl_periph_0]
 
-  # Create address segments
-
-
-  # Restore current instance
   current_bd_instance $oldCurInst
 
   save_bd_design
 }
-# End of create_root_design()
-
-
-##################################################################
-# MAIN FLOW
-##################################################################
 
 create_root_design ""
-
 
 common::send_gid_msg -ssname BD::TCL -id 2053 -severity "WARNING" "This Tcl script was generated from a block design that has not been validated. It is possible that design <$design_name> may result in errors during validation."
 

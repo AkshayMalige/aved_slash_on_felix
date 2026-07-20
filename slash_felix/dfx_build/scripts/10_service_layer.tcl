@@ -1,16 +1,7 @@
-################################################################
-# 10_service_layer.tcl -- build service_layer as its own BD design
-# Faithful to V80 service_layer_inst_0 minus DCMAC/QSFP.
-# Self-test: eth_0..7 (hbm_bandwidth) -> sl2noc_0..7 -> SL2NOC ports.
-# Control: S_AXILITE_INI -> axi_noc_0 -> smartconnect_0 -> eth controls.
-# VIRT x4 + QDMA x1 pass-through chains.
-################################################################
-# (project already open by caller; iprepo already set)
 
 create_bd_design service_layer
 current_bd_design service_layer
 
-# ---- external ports (BDC contract, minus DCMAC/QSFP) ----
 create_bd_intf_port -mode Slave  -vlnv xilinx.com:interface:inimm_rtl:1.0 S_AXILITE_INI
 foreach i {0 1 2 3 4 5 6 7} { create_bd_intf_port -mode Master -vlnv xilinx.com:interface:inimm_rtl:1.0 SL2NOC_${i} }
 foreach i {00 01 02 03}     { create_bd_intf_port -mode Slave  -vlnv xilinx.com:interface:inimm_rtl:1.0 S_VIRT_${i} }
@@ -21,7 +12,6 @@ create_bd_port -dir I -type clk service_clk
 set_property CONFIG.FREQ_HZ 300000000 [get_bd_ports service_clk]
 create_bd_port -dir I -type rst service_resetn
 
-# ---- sl2noc_0..7 + eth_0..7 (self-test kernels) ----
 foreach i {0 1 2 3 4 5 6 7} {
     set sl [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 sl2noc_${i}]
     set_property -dict {CONFIG.NUM_SI {1} CONFIG.NUM_MI {0} CONFIG.NUM_NSI {0} CONFIG.NUM_NMI {1} CONFIG.NUM_CLKS {1}} $sl
@@ -34,7 +24,6 @@ foreach i {0 1 2 3 4 5 6 7} {
     connect_bd_intf_net [get_bd_intf_pins eth_${i}/m_axi_gmem0] [get_bd_intf_pins sl2noc_${i}/S00_AXI]
 }
 
-# ---- control: S_AXILITE_INI -> axi_noc_0 -> smartconnect_0 (8 MI) -> eth ctrl ----
 set n0 [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_0]
 set_property -dict {CONFIG.NUM_SI {0} CONFIG.NUM_MI {1} CONFIG.NUM_NSI {1} CONFIG.NUM_NMI {0} CONFIG.NUM_CLKS {1}} $n0
 set_property -dict {CONFIG.APERTURES {{0x203_0000_0000 4M}} CONFIG.CATEGORY {pl}} [get_bd_intf_pins axi_noc_0/M00_AXI]
@@ -49,9 +38,8 @@ foreach i {0 1 2 3 4 5 6 7} {
     connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M0${i}_AXI] [get_bd_intf_pins eth_${i}/s_axi_control]
 }
 
-# ---- VIRT chains x4: S_VIRT -> axi_noc -> rs -> passthrough -> rs -> noc_virt -> M_VIRT ----
 foreach i {0 1 2 3} {
-    set vi [expr {$i+1}]  ;# axi_noc_1..4
+    set vi [expr {$i+1}]
     set rn [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_${vi}]
     set_property -dict {CONFIG.NUM_SI {0} CONFIG.NUM_MI {1} CONFIG.NUM_NSI {1} CONFIG.NUM_NMI {0} CONFIG.NUM_CLKS {1}} $rn
     set_property -dict {CONFIG.APERTURES {{0x0 64G}} CONFIG.CATEGORY {pl}} [get_bd_intf_pins axi_noc_${vi}/M00_AXI]
@@ -74,7 +62,6 @@ foreach i {0 1 2 3} {
     connect_bd_intf_net [get_bd_intf_pins noc_virt_${i}/M00_INI] [get_bd_intf_ports M_VIRT_${i}]
 }
 
-# ---- QDMA chain: S_QDMA -> axi_noc_5 -> rs -> passthrough -> rs -> noc_virt_4 -> M_QDMA ----
 set n5 [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.1 axi_noc_5]
 set_property -dict {CONFIG.NUM_SI {0} CONFIG.NUM_MI {1} CONFIG.NUM_NSI {1} CONFIG.NUM_NMI {0} CONFIG.NUM_CLKS {1}} $n5
 set_property -dict {CONFIG.APERTURES {{0x0 64G}} CONFIG.CATEGORY {pl}} [get_bd_intf_pins axi_noc_5/M00_AXI]
@@ -96,7 +83,6 @@ connect_bd_intf_net [get_bd_intf_pins qpt/m_axi] [get_bd_intf_pins qrs_b/S_AXI]
 connect_bd_intf_net [get_bd_intf_pins qrs_b/M_AXI] [get_bd_intf_pins noc_virt_4/S00_AXI]
 connect_bd_intf_net [get_bd_intf_pins noc_virt_4/M00_INI] [get_bd_intf_ports M_QDMA_SLV_BRIDGE]
 
-# ---- clocks / resets ----
 set clkpins {}
 foreach c [get_bd_cells *] {
     foreach p [get_bd_pins -quiet $c/aclk*] { lappend clkpins $p }

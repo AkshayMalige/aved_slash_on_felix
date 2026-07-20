@@ -1,22 +1,9 @@
-################################################################
-# 30_integrate.tcl -- instantiate slash + service_layer as BDC
-# container cells in felix_cips and wire to static_region.
-# Assumes felix_cips, service_layer, slash designs all exist in project.
-################################################################
 current_bd_design [get_bd_designs felix_cips]
 
-# ---- delete the 13 top-level INI export ports so the static_region boundary
-#      pins are free to connect to the BDC cells (they were exported off-chip
-#      in the baseline as attachment stubs) ----
 foreach p {M04_INI_0 M05_INI_0 S00_INI_1 S00_INI_3 S00_INI_4 S00_INI_5 S00_INI_6 S00_INI_7 M00_INI_0 M00_INI_1 M00_INI_2 M00_INI_3 M00_INI_4} {
     catch {delete_bd_objs [get_bd_intf_ports $p]}
 }
 
-# ---- expose noc INI boundary pins up to static_region boundary ----
-#   S00_INI_0..S03_INI_0 = slash kernel->DDR data
-#   S12_INI_0..S19_INI_0 = service_layer SL2NOC (kernel data->DDR)
-#   S20_INI_0..S23_INI_0 = service_layer M_VIRT
-# (these are dangling inside static_region in the clean baseline)
 current_bd_instance /static_region
 foreach p {S00_INI_0 S01_INI_0 S02_INI_0 S03_INI_0 \
            S12_INI_0 S13_INI_0 S14_INI_0 S15_INI_0 S16_INI_0 S17_INI_0 S18_INI_0 S19_INI_0 \
@@ -26,11 +13,9 @@ foreach p {S00_INI_0 S01_INI_0 S02_INI_0 S03_INI_0 \
 }
 current_bd_instance /
 
-# ---- instantiate BDC container cells ----
 create_bd_cell -type container -reference service_layer service_layer
 create_bd_cell -type container -reference slash slash
 
-# ---- wire slash ----
 connect_bd_intf_net [get_bd_intf_pins static_region/M04_INI_0] [get_bd_intf_pins slash/S_AXILITE_INI]
 connect_bd_intf_net [get_bd_intf_pins slash/M00_INI] [get_bd_intf_pins static_region/S00_INI_0]
 connect_bd_intf_net [get_bd_intf_pins slash/M01_INI] [get_bd_intf_pins static_region/S01_INI_0]
@@ -42,7 +27,6 @@ connect_bd_intf_net [get_bd_intf_pins slash/SL_VIRT_02] [get_bd_intf_pins static
 connect_bd_intf_net [get_bd_intf_pins slash/SL_VIRT_03] [get_bd_intf_pins static_region/S00_INI4]
 connect_bd_intf_net [get_bd_intf_pins slash/QDMA_SLAVE_BRIDGE_0] [get_bd_intf_pins static_region/S00_INI5]
 
-# ---- wire service_layer ----
 connect_bd_intf_net [get_bd_intf_pins static_region/M05_INI_0] [get_bd_intf_pins service_layer/S_AXILITE_INI]
 connect_bd_intf_net [get_bd_intf_pins static_region/M00_INI]  [get_bd_intf_pins service_layer/S_VIRT_00]
 connect_bd_intf_net [get_bd_intf_pins static_region/M00_INI1] [get_bd_intf_pins service_layer/S_VIRT_01]
@@ -59,31 +43,15 @@ connect_bd_intf_net [get_bd_intf_pins static_region/S22_INI_0] [get_bd_intf_pins
 connect_bd_intf_net [get_bd_intf_pins static_region/S23_INI_0] [get_bd_intf_pins service_layer/M_VIRT_3]
 connect_bd_intf_net [get_bd_intf_pins service_layer/M_QDMA_SLV_BRIDGE] [get_bd_intf_pins static_region/S00_INI6]
 
-# ---- clocks / resets ----
 connect_bd_net [get_bd_pins static_region/clk_out3]           [get_bd_pins slash/slash_clk]
 connect_bd_net [get_bd_pins static_region/peripheral_aresetn2] [get_bd_pins slash/slash_resetn]
 connect_bd_net [get_bd_pins static_region/clk_out2]           [get_bd_pins service_layer/service_clk]
 connect_bd_net [get_bd_pins static_region/peripheral_aresetn1] [get_bd_pins service_layer/service_resetn]
 
-# ---- remove dangling top-level ports that are NOT FELIX board signals.
-#      The felix_cips base export left 9 static-region outputs exposed off-chip:
-#        - 5 are pure dead-ends: eos_0, pl3_ref_clk_0, pl3_resetn_0,
-#          resetn_pl_periph_0, clk_out1_2
-#        - 4 (clk_out1_0/1, Q_0/1) sit on the nets that ALSO feed the slash /
-#          service_layer clocks + resets connected just above; deleting the PORT
-#          keeps those internal connections intact -- it only drops the redundant
-#          off-chip export.
-#      Leaving them makes write_device_image fail DRC NSTD-2 (undefined
-#      IOSTANDARD, which CANNOT be waived) + UCIO-1 (no LOC). None are wired on
-#      the FLX-155 board (0 hits in the board pinout), so they are removed. ----
 foreach p {resetn_pl_periph_0 eos_0 clk_out1_0 clk_out1_1 clk_out1_2 Q_0 Q_1 pl3_resetn_0 pl3_ref_clk_0} {
     catch {delete_bd_objs [get_bd_ports $p]}
 }
 
-# ---- re-route kernel NSI ports to the real DDR path (M01_INI -> ddr4_0/S01_INI).
-#      Baseline left them pointed at M02_INI/M03_INI, which are dead-ends
-#      (leftover from V80's 2-DDR-controller design; FELIX has 1). Give real
-#      bandwidth so the NoC compiler accepts the now-driven paths. ----
 foreach pin {S00_INI S01_INI S02_INI S03_INI \
              S12_INI S13_INI S14_INI S15_INI S16_INI S17_INI S18_INI S19_INI \
              S20_INI S21_INI S22_INI S23_INI} {
@@ -91,15 +59,11 @@ foreach pin {S00_INI S01_INI S02_INI S03_INI \
         {M01_INI {read_bw {100} write_bw {100}}}] \
         [get_bd_intf_pins static_region/noc/axi_noc_cips/$pin]
 }
-# virt_noc retiming NoCs now carry slash SL_VIRT/QDMA traffic -> give bandwidth
 foreach i {0 1 2 3 4} {
     set_property -dict [list CONFIG.CONNECTIONS {M00_INI {read_bw {100} write_bw {100}}}] \
         [get_bd_intf_pins static_region/virt_noc/axi_noc_${i}/S00_INI]
 }
 
-# ---- host SI ports must reach DDR via M01_INI too (per SLASH developer),
-#      since the single DDR channel is now fed only through M01_INI->S01_INI.
-#      These are the exact CONNECTIONS the developer set on S00/S01_AXI. ----
 set_property -dict [list CONFIG.CONNECTIONS {M02_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_INI {read_bw {500} write_bw {500} initial_boot {true}} M06_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_AXI {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}} M04_INI {read_bw {500} write_bw {500} initial_boot {true}} M05_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_AXI {read_bw {5} write_bw {5}} M00_INI {read_bw {128} write_bw {128} initial_boot {false}}}] \
     [get_bd_intf_pins static_region/noc/axi_noc_cips/S00_AXI]
 set_property -dict [list CONFIG.CONNECTIONS {M01_INI {read_bw {500} write_bw {500} initial_boot {true}} M06_INI {read_bw {500} write_bw {500} initial_boot {true}} M01_AXI {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}} M03_INI {read_bw {500} write_bw {500} initial_boot {true}} M04_INI {read_bw {500} write_bw {500} initial_boot {true}} M05_INI {read_bw {500} write_bw {500} initial_boot {true}} M00_AXI {read_bw {5} write_bw {5}} M00_INI {read_bw {500} write_bw {500} initial_boot {true}}}] \
@@ -112,9 +76,6 @@ puts "TOP_CELLS: [get_bd_cells /*]"
 assign_bd_address
 puts "ASSIGN_DONE"
 
-# ---- pin base_logic + clk-wizard addresses to the V80 SLASH layout so the
-#      hw_discovery BAR table (configured in 05) matches the hardware, and
-#      v80-smi set-frequency hits the right clk_wizard address ----
 proc pin_seg {space segpat off rng} {
     set sp [get_bd_addr_spaces $space]
     foreach seg [get_bd_addr_segs -quiet -of_objects $sp -filter "NAME =~ $segpat"] {
@@ -138,7 +99,6 @@ puts "PIN_DONE"
 validate_bd_design
 puts "INTEGRATE_VALIDATE_DONE"
 
-# ---- enable DFX on both BDC containers (mirrors enable_dfx_bdc.tcl) ----
 set_property -dict [list CONFIG.ENABLE_DFX {true}]     [get_bd_cells slash]
 set_property -dict [list CONFIG.ENABLE_DFX {true}]     [get_bd_cells service_layer]
 set_property -dict [list CONFIG.LOCK_PROPAGATE {true}] [get_bd_cells slash]
@@ -147,7 +107,6 @@ save_bd_design
 validate_bd_design
 puts "DFX_VALIDATE_DONE"
 
-# ---- export reproducible scripts for all three designs ----
 set outdir [file dirname [info script]]
 current_bd_design [get_bd_designs service_layer]
 write_bd_tcl -force [file join $outdir export_service_layer.tcl]

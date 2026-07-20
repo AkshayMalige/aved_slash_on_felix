@@ -1,18 +1,4 @@
-################################################################
-# felix_slash_pinout.xdc -- physical pin constraints for the FELIX
-# SLASH port (xcvp1552-vsva3340, FLX-155 board).
-#
-#  Section 1: DDR4 (single channel CH0, 72-bit) + sys_clk0
-#             -- verbatim from step1_vp1552/pinout.xdc (proven-good).
-#  Section 2: PCIe1 x8 GT lanes + reference clock
-#             -- from resources/flx155_pinout.xdc (grx_n[0] typo fixed).
-#
-# NOTE: PCIe lanes (AU3..AK1) must be on the same GTYP quad the CPM5
-#       PCIE1 config selects. If implementation reports a GT placement
-#       conflict, reconcile the CPM quad selection with these pins.
-################################################################
 
-# ===================== Section 1: DDR4 + sys_clk0 =====================
 set_property IOSTANDARD DIFF_POD12 [get_ports {CH0_DDR4_0_0_dqs_c[0]}]
 set_property IOSTANDARD DIFF_POD12 [get_ports {CH0_DDR4_0_0_dqs_c[1]}]
 set_property IOSTANDARD DIFF_POD12 [get_ports {CH0_DDR4_0_0_dqs_c[2]}]
@@ -270,9 +256,6 @@ set_property PACKAGE_PIN BB17 [get_ports {CH0_DDR4_0_0_dqs_t[7]}]
 set_property PACKAGE_PIN BU11 [get_ports {CH0_DDR4_0_0_dqs_t[8]}]
 set_property PACKAGE_PIN BF12 [get_ports {sys_clk0_0_0_clk_p[0]}]
 
-# ===================== Section 2: PCIe1 x8 + refclk ====================
-# PCIe1 GT lanes (only grx_n is located per lane; Vivado derives the rest
-# from the hardened GTYP quad, same as DDR diff-pairs pin only _t).
 set_property PACKAGE_PIN AU3 [get_ports {PCIE1_GT_0_grx_n[0]}]
 set_property PACKAGE_PIN AT1 [get_ports {PCIE1_GT_0_grx_n[1]}]
 set_property PACKAGE_PIN AR3 [get_ports {PCIE1_GT_0_grx_n[2]}]
@@ -281,10 +264,5 @@ set_property PACKAGE_PIN AN3 [get_ports {PCIE1_GT_0_grx_n[4]}]
 set_property PACKAGE_PIN AM1 [get_ports {PCIE1_GT_0_grx_n[5]}]
 set_property PACKAGE_PIN AL3 [get_ports {PCIE1_GT_0_grx_n[6]}]
 set_property PACKAGE_PIN AK1 [get_ports {PCIE1_GT_0_grx_n[7]}]
-# PCIe1 reference clock (100 MHz) -- LOCATION ONLY.
-# Do NOT create_clock here: the CPM5/PCIe hardblock already defines the
-# reference clock (the port carries FREQ_HZ=100MHz). A manual create_clock
-# redefines that primary clock -> "invalid primary clock redefinition /
-# invalid primary clock on hierarchical pin" timing CRITICAL WARNINGs.
 set_property PACKAGE_PIN AP10 [get_ports {gt_refclk1_0_clk_n}]
 set_property PACKAGE_PIN AP11 [get_ports {gt_refclk1_0_clk_p}]
