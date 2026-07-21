@@ -34,25 +34,33 @@ sudo systemctl stop vrtd 2>/dev/null || true
 sudo rmmod ami   2>/dev/null || true
 sudo rmmod slash 2>/dev/null || true
 
-# 0.2 purge the packages (also triggers DKMS removal of slash/ami)
+# 0.2 purge the packages. Errors are NOT suppressed here so you see failures.
+#     apt continues past names that "are not installed" -- that's harmless.
 sudo apt-get remove --purge -y \
-    ami slash-dkms slash-dev \
-    libslash libslash-dev libvrt libvrt-dev libvrtd libvrtd-dev \
-    vrtd v80-smi v80++ amd-vrt 2>/dev/null || true
-sudo apt-get autoremove -y 2>/dev/null || true
+    ami slash-dkms libslash libslash-dev libvrt libvrt-dev libvrtd libvrtd-dev vrtd
+
+# IMPORTANT: 'v80++' must be purged with dpkg, NOT apt. On the apt command line a
+# trailing '+' is an action modifier, so apt misreads 'v80++' as package 'v80',
+# fails to find it, and ABORTS the whole remove without touching anything.
+sudo dpkg --purge v80++ 2>/dev/null || true
+# these may already be gone (amd-vrt often 'rc'); ignore "not installed":
+sudo dpkg --purge v80-smi amd-vrt slash-dev 2>/dev/null || true
+sudo apt-get autoremove --purge -y
 
 # 0.3 force-remove any DKMS leftovers for ALL kernels
 for m in ami/2.4.0 slash/0.1; do sudo dkms remove "$m" --all 2>/dev/null || true; done
 sudo depmod -a
 ```
-**Verify clean — all four must be empty:**
+**Verify clean — all four must be empty** (`node-slash` is an unrelated Node.js
+package — ignore it):
 ```bash
-dpkg -l | grep -iE '\bami\b|slash|libvrt|vrtd' | grep '^ii'
+dpkg -l | grep -iE '\bami\b|slash|libvrt|vrtd' | grep '^ii' | grep -v node-slash
 dkms status | grep -iE 'ami|slash'
 lsmod | grep -iE 'ami|slash|qdma'
 find /lib/modules/$(uname -r) -name 'ami.ko*' -o -name 'slash.ko*'
 ```
-If anything prints, resolve it before continuing.
+If anything prints (other than `node-slash`), resolve it before continuing — e.g.
+purge it directly with `sudo dpkg --purge <name>`.
 
 ---
 
