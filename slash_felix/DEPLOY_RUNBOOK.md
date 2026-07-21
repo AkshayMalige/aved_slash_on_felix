@@ -51,6 +51,20 @@ sudo apt-get autoremove --purge -y
 for m in ami/2.4.0 slash/0.1; do sudo dkms remove "$m" --all 2>/dev/null || true; done
 sudo depmod -a
 ```
+
+**If `ami` fails to purge** with `ami.prerm … rmmod … Killed … exit status 137`:
+its removal script tries to `rmmod ami`, but the old loaded `ami` module is
+wedged (it waits on a card that isn't there), so `rmmod` gets killed and dpkg
+aborts. Everything else removes fine; only `ami` is stuck. Fix it:
+```bash
+lsmod | grep ami                              # still loaded?
+sudo rmmod ami                                # try to unload; Ctrl-C if it hangs
+sudo rm -f /var/lib/dpkg/info/ami.prerm       # neutralize the failing rmmod step
+sudo dpkg --purge --force-all ami             # complete the purge (+ DKMS via postrm)
+# if rmmod above hung/failed, REBOOT now to clear the wedged module -- it will
+# not reload (the DKMS package is gone). Then re-run the verify below.
+```
+
 **Verify clean — all four must be empty** (`node-slash` is an unrelated Node.js
 package — ignore it):
 ```bash
