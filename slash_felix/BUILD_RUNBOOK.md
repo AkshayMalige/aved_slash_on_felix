@@ -20,6 +20,20 @@ cd ~/VersalPrjs/felix/felix-xpfm-pcie/porting_slash/slash_felix
 
 ## Phase A — Build the base hardware from scratch (one-time, ~1 h)
 
+> **PREREQUISITE — build the HLS iprepo IP first.** `hbm_bandwidth` (and the
+> linker's `traffic_producer`) are HLS kernels whose packaged IP lives in a
+> gitignored `ip/` dir, so a fresh clone does **not** have them. Without this
+> you get: `ERROR [BD 5-390] IP definition not found for VLNV:
+> xilinx.com:hls:hbm_bandwidth:1.0`. Build them once:
+>
+> ```bash
+> # for the DFX hardware build (dfx_build uses hbm_bandwidth):
+> ( cd iprepo/hbm_bandwidth && make )
+> # for the linker (base/iprepo self-test kernels):
+> ( cd linker/resources/base/iprepo/hbm_bandwidth && make )
+> ( cd linker/resources/base/iprepo/traffic_producer && make )
+> ```
+
 ```bash
 # A1. Build the DFX project: felix_cips static region + slash & service_layer
 #     RMs + wrapper + pblocks + DFX configuration. Creates dfx_build/proj/.
@@ -131,6 +145,7 @@ The `.vbin` (gzip tar) contains:
 
 | Error | Fix |
 |---|---|
+| `[BD 5-390] IP definition not found for VLNV: xilinx.com:hls:hbm_bandwidth:1.0` | HLS iprepo IP not built — run `make` in `iprepo/hbm_bandwidth` (see Phase A prerequisite) |
 | `sp=...:HBM*` / `:MEM` not found | felix has no HBM/MEM — use `DDR0-3` / `VIRT0-3` / `HOST` |
 | `connect_bd_net requires at least two pins` on `user_clk` | a renamed boundary pin still hardcoded in `linker/src/emit/`; grep + fix |
 | `KeyError` in `generate_util_report` | hardcoded top/cell name; partial PDI already written, only metadata failed |
