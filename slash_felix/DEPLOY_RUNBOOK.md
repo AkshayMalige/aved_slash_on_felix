@@ -1,155 +1,234 @@
-# FELIX SLASH — Deployment Runbook (on-card bring-up)
+# FELIX SLASH — Full Deployment Runbook (from scratch)
 
-How to bring the SLASH stack up on a **powered FLX-155** card: program the base
-image, load the drivers, start `vrtd`, run a kernel, and (optionally) bring up
-AMI/AMC. Assumes the **build** side is done — see `BUILD_RUNBOOK.md` (hardware +
-linker) and the AMC/AMI build steps recorded below.
+The one detailed procedure: **remove old drivers → build hardware → firmware →
+software/drivers → install → build the example kernel → program the FLX-155 →
+run the design from the host.** Follow top to bottom.
 
-Target: FELIX FLX-155 (`xcvp1552-vsva3340-2MHP-e-S`), Vivado/Vitis **2025.1**.
-`SLASH/` = `~/VersalPrjs/felix/felix-xpfm-pcie/SLASH`.
-Device identity: **PF0 `ami` `10ee:50b4`**, **PF1 `qdma` `10ee:50b5`**, **PF2 `slash` `10ee:50b6`**.
+This repo is self-contained — everything builds locally, no external tree. For
+*what each piece is* see `CONCEPTS.md`; `FELIX_SLASH_PLAN.md` is the short version.
 
-> Nothing here has been run on real hardware yet — this is the intended
-> procedure. Items that can only be confirmed on the card are marked ⚠️.
-
----
-
-## Phase 0 — Artifacts you need
-
-| Artifact | Path | Made by |
-|---|---|---|
-| Base PDI **with AMC** (full stack) | `dfx_build/amc_pdi/build/felix_slash_amc.pdi` | `combine_amc_pdi.sh` |
-| Base PDI **without AMC** (kernel-swap only) | `dfx_build/proj/felix_slash.runs/impl_1/felix_cips_wrapper.pdi` | `run_impl.tcl` |
-| slash driver (+qdma) | `SLASH/driver/slash.ko` | `cd SLASH/driver && make` |
-| AMI driver | `SLASH/linker/resources/submodules/AVED/sw/AMI/driver/ami.ko` | `cd …/AMI/driver && make` |
-| Kernel `.vbin` | `examples/00_axilite/axilite_hw.vbin` | `v80++ link` (BUILD_RUNBOOK B) |
-
-Plus: **JTAG access** to the card (onboard USB-JTAG or a cable) for programming.
-
----
-
-## Phase 1 — Program the base image (JTAG)
-
-Choose ONE base PDI (full-stack vs kernel-swap-only, see Phase 5 shortcut).
+> ⚠️ Read before starting
+> - Run **every command from the repo root** (this directory).
+> - Source the toolchain first: `source /tools/Xilinx/2025.1/Vitis/settings64.sh`
+>   (gives `vivado`, `v++`, `bootgen`, `sdtgen`, `empyro`).
+> - Parts 0–5 are build/host — no card needed. Parts 6–9 need the **powered
+>   FLX-155** with **JTAG** access.
+> - Shortcut: `./build_all.sh {hw|fw|sw|all}` runs Parts 1–3. The detailed steps
+>   below are exactly what it does, so you can run/debug them individually.
 
 ```bash
 source /tools/Xilinx/2025.1/Vitis/settings64.sh
+cd <this repo>                       # everything is relative to here
+```
+
+---
+
+## Part 0 — Remove OLD installed drivers (do this fully, once)
+
+A machine that previously ran V80/AVED has `ami`+`slash` installed via **DKMS + .deb**;
+they auto-load via `modprobe` and will shadow your freshly built modules. Remove them.
+
+```bash
+# 0.1 stop the daemon + unload any loaded modules (ignore "not loaded" errors)
+sudo systemctl stop vrtd 2>/dev/null || true
+sudo rmmod ami   2>/dev/null || true
+sudo rmmod slash 2>/dev/null || true
+
+# 0.2 purge the packages (also triggers DKMS removal of slash/ami)
+sudo apt-get remove --purge -y \
+    ami slash-dkms slash-dev \
+    libslash libslash-dev libvrt libvrt-dev libvrtd libvrtd-dev \
+    vrtd v80-smi v80++ amd-vrt 2>/dev/null || true
+sudo apt-get autoremove -y 2>/dev/null || true
+
+# 0.3 force-remove any DKMS leftovers for ALL kernels
+for m in ami/2.4.0 slash/0.1; do sudo dkms remove "$m" --all 2>/dev/null || true; done
+sudo depmod -a
+```
+**Verify clean — all four must be empty:**
+```bash
+dpkg -l | grep -iE '\bami\b|slash|libvrt|vrtd' | grep '^ii'
+dkms status | grep -iE 'ami|slash'
+lsmod | grep -iE 'ami|slash|qdma'
+find /lib/modules/$(uname -r) -name 'ami.ko*' -o -name 'slash.ko*'
+```
+If anything prints, resolve it before continuing.
+
+---
+
+## Part 1 — Build the hardware  (`./build_all.sh hw`, ~1 h)
+
+Produces the base image, XSA, and the abstract shell the linker needs.
+```bash
+( cd iprepo/hbm_bandwidth && make )                            # HLS iprepo IP (else BD errors)
+vivado -mode batch -source dfx_build/scripts/run_all.tcl        # build the DFX project
+vivado -mode batch -source dfx_build/scripts/run_impl.tcl       # synth+impl -> PDI, XSA, abs shell
+./scripts/stage_artifacts.sh                                    # place dcp/pdi/xsa (see below)
+( cd linker/resources/base/iprepo/hbm_bandwidth && make )       # linker self-test IP
+( cd linker && vivado -mode batch -source gen_slash_base.tcl )  # -> slash_base.bd
+```
+`stage_artifacts.sh` copies from `dfx_build/proj/.../impl_1/`:
+`abs_shell_slash.dcp` → `linker/resources/abstract_shell/`; `felix_slash.xsa` +
+`felix_cips_wrapper.pdi` → `dfx_build/artifacts/`.
+**Check:** `ls dfx_build/artifacts/felix_slash.xsa linker/resources/abstract_shell/abs_shell_slash.dcp`
+
+---
+
+## Part 2 — Build the firmware  (`./build_all.sh fw`, ~10 min)
+
+AMC firmware for the RPU + the base image that boots it.
+```bash
+AMC=linker/resources/submodules/AVED/fw/AMC
+( cd $AMC/scripts && ./build_bsp.sh -xsa "$(pwd)/dfx_build/artifacts/felix_slash.xsa" -os freertos )
+( cd $AMC && ./scripts/build.sh -amc -profile felix -os freertos )     # -> $AMC/build/amc.elf
+( cd dfx_build/amc_pdi && ./combine_amc_pdi.sh )                        # -> build/felix_slash_amc.pdi
+```
+**Check:** `ls dfx_build/amc_pdi/build/felix_slash_amc.pdi`
+(For a kernel-swap-only demo without firmware, skip Part 2 and use
+`dfx_build/artifacts/felix_cips_wrapper.pdi` in Part 6 — see CONCEPTS.md.)
+
+---
+
+## Part 3 — Build the software / drivers  (`./build_all.sh sw`, ~5 min)
+
+```bash
+( cd driver && make clean && make )                                              # slash.ko (PF1+PF2)
+( cd linker/resources/submodules/AVED/sw/AMI/driver && make clean && make )       # ami.ko  (PF0)
+for c in driver/libslash vrt/vrtd vrt smi; do
+  ( cd $c && rm -rf build && cmake -S . -B build -G Ninja && cmake --build build )
+done
+```
+**Check:** `ls driver/slash.ko linker/resources/submodules/AVED/sw/AMI/driver/ami.ko`
+
+---
+
+## Part 4 — Install libraries + load the drivers
+
+```bash
+# 4.1 install the host libraries/daemon/CLI system-wide
+for c in driver/libslash vrt/vrtd vrt smi; do ( cd $c && sudo cmake --install build ); done
+sudo ldconfig
+
+# 4.2 load the freshly built modules by explicit path — slash FIRST, then ami
+sudo insmod driver/slash.ko
+sudo insmod linker/resources/submodules/AVED/sw/AMI/driver/ami.ko
+lsmod | grep -iE 'ami|slash|qdma'      # both present
+dmesg | tail -40                       # probe + VSEC logs, no errors
+```
+> `ami` matches any Xilinx function and keeps only the one with the hw_discovery
+> VSEC (**PF0** on felix). Loading `slash` first lets it claim PF1/PF2; `ami` then
+> binds PF0 and rejects the rest — confirm in `dmesg`.
+
+*(This step needs the card present in Part 6 to be meaningful; you can build Parts
+1–3 anytime, but only load drivers once the board is programmed and enumerated.)*
+
+---
+
+## Part 5 — Build the example kernel `00_axilite` → `.vbin`
+
+```bash
+( cd examples && ./build_hls.sh 00_axilite increment accumulate )     # HLS synth (vp1552)
+HLS=$(pwd)/examples/00_axilite/hls
+V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
+  -c examples/00_axilite/config.cfg -p hw \
+  -o examples/00_axilite/axilite_hw.vbin \
+  -k $HLS/build_increment.xcvp1552-vsva3340-2MHP-e-S/hls/impl/ip/component.xml \
+     $HLS/build_accumulate.xcvp1552-vsva3340-2MHP-e-S/hls/impl/ip/component.xml \
+  --vivado "$(which vivado)"
+( cd examples/00_axilite && cmake -B build -S . -G Ninja -DSLASH_USE_REPO=ON && cmake --build build )
+```
+**Check:** `ls examples/00_axilite/axilite_hw.vbin examples/00_axilite/build/00_axilite`
+(A `.vbin` is a gzip tar: `tar tzf examples/00_axilite/axilite_hw.vbin`.)
+
+---
+
+## Part 6 — Program the FLX-155 (JTAG)  ⚠️ needs the card
+
+Program the base image (full stack = the AMC PDI). Requires JTAG access.
+```bash
 vivado -mode tcl
 ```
 ```tcl
 open_hw_manager ; connect_hw_server ; open_hw_target
-# full stack (boots the AMC on the R5):
 program_hw_devices -file dfx_build/amc_pdi/build/felix_slash_amc.pdi [current_hw_device]
-refresh_hw_device [current_hw_device]
+exit
 ```
-The PLM configures PL + PS and (for the AMC PDI) hands off the AMC to Cortex-R5-0.
-**Then reboot the host or rescan PCIe** so the endpoint enumerates:
+Then let PCIe re-enumerate:
 ```bash
-# if the card was cold: a host reboot is the reliable path on first program.
-# otherwise force a rescan:
-echo 1 | sudo tee /sys/bus/pci/rescan
+echo 1 | sudo tee /sys/bus/pci/rescan       # or reboot the host on first cold program
 ```
+> The PLM configures the fabric + PS and hands the AMC off to the Cortex-R5.
 
 ---
 
-## Phase 2 — Build + install the host stack
-
-Install in dependency order (from `SLASH/`):
-```bash
-cd SLASH
-# slash driver (binds PF1 qdma + PF2 slash)
-cd driver && make && sudo insmod slash.ko && cd ..
-# host libraries + daemon
-cd driver/libslash && cmake -S . -B build -G Ninja && cmake --build build && sudo cmake --install build && cd ../..
-cd vrt/vrtd     && cmake -S . -B build -G Ninja && cmake --build build && sudo cmake --install build && cd ../..
-cd vrt          && cmake -S . -B build -G Ninja && cmake --build build && sudo cmake --install build && cd ..
-cd smi          && cmake -S . -B build -G Ninja && cmake --build build && sudo cmake --install build && cd ..
-# AMI driver (binds PF0 via VSEC) — only needed for the full AMI/AMC path
-cd linker/resources/submodules/AVED/sw/AMI/driver && make && sudo insmod ami.ko && cd -
-```
-
-**Driver coexistence note:** `ami.ko` matches `PCI_DEVICE(0x10ee, PCI_ANY_ID)` and
-accepts a function only if it exposes the hw_discovery **VSEC** (PF0 only on felix).
-`slash.ko` binds the exact IDs `50b5`/`50b6`. To avoid any race, a safe load order is
-**`slash.ko` first, then `ami.ko`**. If `ami` grabs PF1/PF2, its probe should reject
-them (no VSEC) and release — verify with `dmesg`.
-
----
-
-## Phase 3 — Verify enumeration
+## Part 7 — Verify enumeration
 
 ```bash
-lspci -d 10ee: -nn            # expect three functions: 50b4 (PF0), 50b5 (PF1), 50b6 (PF2)
-lspci -s <BDF> -vvv | grep -i "Kernel driver in use"   # PF0->ami, PF1/PF2->slash_*
-v80-smi list                  # SLASH readiness: PF0, PF1, PF2, VRTD should all pass
-dmesg | grep -iE "slash|ami|qdma|vsec"                 # binding + VSEC discovery logs
+lspci -d 10ee: -nn                          # expect 50b4 (PF0), 50b5 (PF1), 50b6 (PF2)
+lspci -s <BDF> -k | grep -i "in use"        # PF0 -> ami ; PF1/PF2 -> slash_*
+# if drivers not yet loaded, do Part 4 now (card is up), then:
+sudo vrtd &                                 # start the daemon (or: systemctl start vrtd)
+v80-smi list                                # PF0/PF1/PF2/VRTD should all pass
+dmesg | grep -iE 'slash|ami|qdma|vsec'      # binding + VSEC discovery
 ```
-⚠️ First real check that PF0/1/2 bind and the VSEC (uuid/gcq/gcq_payload) reads back.
+⚠️ First real check that the three PFs bind and the VSEC (uuid/gcq/gcq_payload) reads back.
 
 ---
 
-## Phase 4 — Start vrtd and run a kernel
+## Part 8 — Run the design from the host
 
 ```bash
-sudo vrtd                            # or: sudo systemctl enable --now vrtd
-# get the PF2 (slash) BDF from lspci, then run the example:
-cd examples/00_axilite
-./build/00_axilite <PF2-BDF> axilite_hw.vbin
+# get the PF2 (slash) BDF from lspci, then:
+./examples/00_axilite/build/00_axilite <PF2-BDF> examples/00_axilite/axilite_hw.vbin
 ```
-What happens: libvrt → `vrtd` → `design_writer` DMAs the partial PDI over **QDMA**
-(H2C) to **`0x102100000`** → PMC PLM does partial reconfiguration of the `slash`
-partition → driver does SBR + hotplug re-enum → the kernel is live and the app
-reads/writes it over the BAR (AXI-Lite `0x0202_…`) and DDR (`0x600_…`).
-
-Success = the example prints matching results (increment→accumulate over DDR0).
+What happens: libvrt → `vrtd` → `design_writer` DMAs the partial PDI over QDMA to
+`0x102100000` → the PMC partially reconfigures the `slash` partition → `clock.c`
+sets the kernel clock (BAR4) → `reset.c` re-enumerates (SBR + hotplug) → the kernel
+is live and the app reads/writes it over the BAR and DDR.
+**Success:** the program prints matching `increment → accumulate` results. The card
+blips out/in of PCIe once during the load — that's the swap, not a fault.
 
 ---
 
-## Phase 5 — AMI / AMC bring-up (full stack only)
+## Part 9 — (optional) Flash the base image to the card (permanent)  ⚠️ risky
 
-Needed for management, sensors, and vrtd's AMI-based reset path.
+Makes the card boot without JTAG. Needs `ami.ko` loaded and the AMC alive (Parts 4/6).
 ```bash
-# ami.ko already loaded in Phase 2. Then the AMI CLI (built from AVED/sw/AMI/app):
-ami_tool overview            # lists the device, logic UUID (from the VSEC)
-ami_tool sensors             # ⚠️ will report V80 sensors until PDR/sensors retargeted
+ami_tool overview                                       # AMI sees the device + logic UUID?
+ami_tool cfgmem_fpt -d <PF0-BDF> -t primary -i dfx_build/amc_pdi/build/felix_slash_amc.pdi
+ami_tool reload -d <PF0-BDF>                            # or power-cycle
 ```
-The host↔AMC path: AMI (PF0) ↔ GCQ mailbox (`0x201_0101_0000`) ↔ AMC on R5
-(LPD `0x8000_0000`) with a 128M DDR payload buffer (`0x201_0800_0000`→DDR `0x3800_0000`).
+> A bad/interrupted flash of the **primary** partition can brick the card (recover
+> via JTAG). If a **secondary/golden** partition exists, flash `-t secondary` first
+> and test it before primary. Never power-cycle mid-flash. Verify exact flag names
+> with `ami_tool cfgmem_fpt -h`.
 
 ---
 
-## Kernel-swap-only shortcut (no AMI, no AMC)
+## Verification checklist (on the card)
 
-To demo a kernel swap **without** building/deploying AMC or AMI:
-1. Program `felix_cips_wrapper.pdi` (the no-AMC base) in Phase 1.
-2. Skip `ami.ko` in Phase 2.
-3. In `vrt/vrtd/src/reset.c`, bypass the `AMI_IOC_DEVICE_BOOT` call so the reset
-   uses **SBR + hotplug only** (`slash_hotplug_*`, GPIO `0x1040000`) — these live in
-   the slash driver, not AMI. Rebuild vrtd.
-4. Phases 3–4 as normal. Kernel swap works with zero firmware.
-
----
-
-## On-card verification checklist (the still-open items)
-
-- [ ] `lspci` shows `50b4`/`50b5`/`50b6`; correct `Kernel driver in use` per PF.
-- [ ] `v80-smi list` → PF0/PF1/PF2/VRTD all pass.
-- [ ] ⚠️ **`QDMA_LOGIC_BASE 0x201_0002_0000`** responds (the one unverified hardcoded
-      addr in `vrt/device.hpp`). If `v80-smi`/reads fail here, confirm the felix QDMA
-      logic aperture and edit that constant.
-- [ ] Kernel `.vbin` loads and the example returns correct data (DFX-from-host path).
+- [ ] Part 0 clean: no old `ami`/`slash` in `dpkg`/`dkms`/`lsmod`.
+- [ ] Parts 1–3: `felix_slash_amc.pdi`, `slash.ko`, `ami.ko`, host libs all built.
+- [ ] `lspci` shows `50b4`/`50b5`/`50b6`, correct driver per PF.
+- [ ] `v80-smi list` → PF0/PF1/PF2/VRTD pass.
+- [ ] ⚠️ `QDMA_LOGIC_BASE 0x201_0002_0000` responds (the one unverified addr in
+      `vrt/device.hpp`); if reads fail here, confirm the felix QDMA aperture + edit it.
+- [ ] Part 8: `00_axilite` returns correct data.
 - [ ] (full stack) `ami_tool overview` reads the logic UUID → AMI↔AMC mailbox alive.
-- [ ] (full stack) vrtd AMI reset path completes a reprogram cycle.
-
----
 
 ## Troubleshooting
 
-| Symptom | Likely cause / fix |
+| Symptom | Fix |
 |---|---|
-| Only 1–2 PFs in `lspci` | base PDI not programmed / needs host reboot after first program |
-| `ami` bound to PF1/PF2 | load `slash.ko` before `ami.ko`; check `ami` probe rejected non-VSEC PFs in `dmesg` |
+| `[BD 5-390] hbm_bandwidth not found` (Part 1) | run `( cd iprepo/hbm_bandwidth && make )` first |
+| only 1–2 PFs in `lspci` | base image not programmed / needs host reboot after first program |
+| `ami` bound to PF1/PF2 | load `slash.ko` before `ami.ko`; check `ami` rejected non-VSEC PFs in `dmesg` |
 | `v80-smi list` VRTD fail | `vrtd` not running / socket perms — `sudo vrtd`, check `/run/vrtd` |
-| kernel load hangs at reconfig | design_writer→`0x102100000` path; check QDMA H2C queue + PLM log (JTAG/XSDB) |
+| kernel load hangs at reconfig | design_writer→`0x102100000`; check QDMA H2C queue + PLM log (JTAG/XSDB) |
 | `ami_tool sensors` garbage | expected — AMC still has V80 `profile_sensors.h`/`profile_pdr.h`; retarget to FLX-155 |
-| reset/reprogram fails (full stack) | AMC not alive on R5 — verify the AMC PDI booted (XSDB on R5), or use SBR-only shortcut |
+| reset/reprogram fails (full stack) | AMC not alive on R5 — verify the AMC PDI booted (XSDB on R5), or use the SBR-only shortcut |
+
+## Status
+Build side (Parts 1–5) verified on the workstation. Parts 6–9 need the powered
+FLX-155 — not yet run. Watch the two ⚠️ items (`QDMA_LOGIC_BASE`, AMI↔AMC) on first
+hardware bring-up.
