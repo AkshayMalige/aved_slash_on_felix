@@ -42,3 +42,37 @@ examples/*.log
 
 # Session logs
 link_*.log
+
+# ------------------------------------------------------------------
+# Vendored software/firmware build outputs (source is tracked; build here)
+# ------------------------------------------------------------------
+
+# staged hardware artifacts (produced by scripts/stage_artifacts.sh)
+dfx_build/artifacts/
+dfx_build/amc_pdi/build/
+dfx_build/amc_pdi/*.log
+
+# kernel-module build artifacts (slash + qdma + ami drivers)
+*.o
+*.ko
+*.mod
+*.mod.c
+*.o.d
+.*.cmd
+*.o.cmd
+Module.symvers
+modules.order
+.tmp_versions/
+
+# cmake build dirs (libslash, vrt, vrtd, smi)
+driver/libslash/build/
+vrt/build/
+vrt/vrtd/build/
+smi/build/
+
+# AMC firmware build outputs
+linker/resources/submodules/AVED/fw/AMC/build/
+linker/resources/submodules/AVED/fw/AMC/amc_bsp/
+linker/resources/submodules/AVED/fw/AMC/.Xil/
+# AMI app/driver build outputs
+linker/resources/submodules/AVED/sw/AMI/**/build/

@@ -1,0 +1,15 @@
+/******************************************************************************
+* FELIX base-PDI combine: felix hardware PDI + AMC firmware on the RPU (R5-0).
+* Mirrors AVED hw/.../fpt/pdi_combine.bif, retargeted to felix filenames.
+* Files are copied into ./build by combine_amc_pdi.sh; paths are relative to it.
+******************************************************************************/
+all:
+{
+    image {
+      { type=bootimage, file=./build/felix_cips_wrapper.pdi }
+    }
+    image {
+        id = 0x1c000000, name=rpu_subsystem, delay_handoff
+        { core=r5-0, file=./build/amc.elf }
+    }
+}

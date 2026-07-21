@@ -4,7 +4,27 @@
 > then `plan_070726.md` (the step-by-step plan) and `diagrams.md` (ASCII
 > picture book). Update this file whenever a fact changes or a step
 > completes — it should only get more accurate over time.
-> Last updated: 2026-07-07.
+> Last updated: 2026-07-21.
+
+## 0. Progress snapshot (2026-07-21) — read this first
+
+- **Hardware/DFX shell: DONE + verified.** `dfx_build/` builds the felix_cips static
+  region + `slash` & `service_layer` DFX partitions, runs synth→impl→device image, and
+  exports the abstract shell (`run_impl.tcl`). See `BUILD_RUNBOOK.md`.
+- **v80++ linker port: DONE + verified end-to-end.** `linker/` (felix `resources/` +
+  patched `src/`) links an HLS kernel into the `slash` partition → partial PDI/`.vbin`.
+  Proven with `examples/{00_axilite,01_aximm}` (real Vitis HLS on vp1552 + `LINK_EXIT=0`).
+  See `linker/FELIX_LINKER_GUIDE.md` (files/bugs) + `BUILD_RUNBOOK.md` (commands).
+- **SLASH software Bucket 1 (drivers/vrt): BUILDS clean for felix, zero source changes** —
+  `slash.ko` (+qdma), `libslash`, `libvrt`, `vrtd` (+AMI lib from AVED), `smi`. Device IDs
+  50b4/5/6 match; hardcoded map (DDR 0x600, SBR gpio 0x1040000, clk BAR4) verified. One item
+  to confirm on-card: `QDMA_LOGIC_BASE 0x201_0002_0000` (`vrt/device.hpp`). NOTE: slash/vrt use
+  a HARDCODED map — they do NOT read the hw_discovery VSEC; **only AMI reads it**.
+- **Bucket 2/3 (AMI + AMC firmware): pending.** hw_discovery VSEC (3 entries: uuid/gcq/gcq_payload)
+  is correct AND the GCQ_PAYLOAD 128M DDR window is already plumbed (see §"host→DDR REMAP" below).
+  Remaining: build AMC firmware for felix + embed in base PDI; build ami driver/lib; wire gcq↔RPU.
+  Kernel-swap demo can bypass AMI (`vrtd reset.c` → SBR-only). See memory `felix-slash-software-port-plan`.
+- Build order note below (§1) is historical; the shell + linker are already done.
 
 ## 1. The goal (user: Akshay)
 
@@ -76,8 +96,13 @@ Source: `SLASH/linker/src/install.prj/slash.srcs/sources_1/bd/top/top.bd`.
   | `0x0050_0800_0000` | 2G | DDR CH1 (axi_noc_mc_ddr4_0) |
   | `0x0060_0000_0000` | 32G | DDR CH2 (axi_noc_mc_ddr4_1) |
   | `0x0040_0000_0000`..`0x004F..` | 32×1G | HBM (skip on FELIX) |
-- **V80 REMAP on axi_noc_cips/S00_AXI**: `REMAPS {M00_INI {{0x20108000000 0x00038000000 0x08000000}}}`
-  — maps host-BAR window `0x201_0800_0000` (128M) → low DDR `0x0_0380_0000`. FELIX lacks this.
+- **host→DDR REMAP (GCQ_PAYLOAD window) — PRESENT in FELIX** (added by `dfx_build/scripts/05_fix_static.tcl`,
+  confirmed in built-BD export): `axi_noc_cips/S00_AXI CONFIG.REMAPS {M01_INI {{0x20108000000 0x00038000000 0x08000000}}}`
+  maps host-BAR window `0x201_0800_0000` (128M) → low DDR `0x0_0380_0000`, plus
+  `assign_bd_address 0x201_0800_0000/128M` in `CPM_PCIE_NOC_0` → `axi_noc_mc_ddr4_0/S01_INI/C0_DDR_LOW0`.
+  Matches V80 exactly (same `0x3800_0000` target; only the door M00_INI→M01_INI changed for FELIX's
+  single-channel DDR). This is the AMI↔AMC 128M shared payload buffer (hw_discovery VSEC entry 2,
+  type `0x55`=GCQ_PAYLOAD). (Older revisions of this note said "FELIX lacks this" — no longer true.)
 - **slash BDC real inventory** (slash_base_inst_0.bd): 81 hbm_bandwidth, 70 smartconnect
   (HBM fanout), 18 axi_noc, 16 axis_noc, 8 traffic_producer, 98 intf ports (64 HBM_AXI +
   DDR M00-03_INI + S_AXILITE_INI + SL_VIRT + QDMA_SLAVE_BRIDGE). **~90% HBM → strip.**

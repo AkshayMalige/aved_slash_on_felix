@@ -53,8 +53,12 @@ cp dfx_build/proj/felix_slash.runs/impl_1/abs_shell_slash.dcp \
 ```
 
 After Phase A, `linker/resources/` is complete:
-`abstract_shell/abs_shell_slash.dcp`, `abstract_shell/slash_base/slash_base.bd`,
-`base/iprepo/`, `bd_ports.txt`, `slash.tcl`, `system_map.xml`,
+`abstract_shell/abs_shell_slash.dcp`, 
+`abstract_shell/slash_base/slash_base.bd`,
+`base/iprepo/`, 
+`bd_ports.txt`, 
+`slash.tcl`, 
+`system_map.xml`,
 `base/scripts/slash_project_build.tcl`.
 
 ---
