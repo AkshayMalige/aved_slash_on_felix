@@ -23,8 +23,23 @@ launch_runs impl_1 -to_step write_device_image -jobs 8
 wait_on_run impl_1
 open_run impl_1
 set _od [get_property DIRECTORY [get_runs impl_1]]
+
+# --- abstract shells (linker RM place-context; abs_shell_slash.dcp is the file
+#     the v80++ slash link path consumes as resources/abstract_shell/) ---
 write_abstract_shell -cell felix_cips_i/slash         -force [file join $_od abs_shell_slash.dcp]
 write_abstract_shell -cell felix_cips_i/service_layer -force [file join $_od abs_shell_service_layer.dcp]
 
+# --- hardware platform XSA (firmware / install use; needs the full routed
+#     design incl. bitstream). Deferred phase, but generated here so it comes
+#     out of the same impl as the abstract shells. ---
+write_hw_platform -fixed -include_bit -force [file join $_od felix_slash.xsa]
+
+# --- routed static checkpoint with the RP cells black-boxed (deploy artifact
+#     used to assemble the full base platform PDI). Do this LAST: it mutates the
+#     in-memory design, so it must run after the abstract-shell / XSA exports. ---
+update_design -black_box -cell felix_cips_i/slash
+update_design -black_box -cell felix_cips_i/service_layer
+write_checkpoint -force [file join $_od felix_cips_wrapper_routed_bb.dcp]
+
 puts "RUN_IMPL_DONE"
-puts "  device image (.pdi) + abstract shells in: $_od"
+puts "  device image (.pdi), abstract shells, XSA, routed_bb.dcp in: $_od"
