@@ -87,6 +87,7 @@ vivado -mode batch -source dfx_build/scripts/run_all.tcl        # build the DFX 
 vivado -mode batch -source dfx_build/scripts/run_impl.tcl       # synth+impl -> PDI, XSA, abs shell
 ./scripts/stage_artifacts.sh                                    # place dcp/pdi/xsa (see below)
 ( cd linker/resources/base/iprepo/hbm_bandwidth && make )       # linker self-test IP
+( cd linker/resources/base/iprepo/traffic_producer && make )       # linker self-test IP
 ( cd linker && vivado -mode batch -source gen_slash_base.tcl )  # -> slash_base.bd
 ```
 `stage_artifacts.sh` copies from `dfx_build/proj/.../impl_1/`:
@@ -116,10 +117,21 @@ AMC=linker/resources/submodules/AVED/fw/AMC
 ```bash
 ( cd driver && make clean && make )                                              # slash.ko (PF1+PF2)
 ( cd linker/resources/submodules/AVED/sw/AMI/driver && make clean && make )       # ami.ko  (PF0)
+
+# The host libs are a find_package() chain: libslash <- vrtd <- vrt <- smi.
+# Nothing is installed yet (Part 0 purged the old .debs), so each build must be
+# pointed at the build trees of the ones before it.
+ROOT=$(pwd); PREFIX=""
 for c in driver/libslash vrt/vrtd vrt smi; do
-  ( cd $c && rm -rf build && cmake -S . -B build -G Ninja && cmake --build build )
+  ( cd $c && rm -rf build \
+      && cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$PREFIX" \
+      && cmake --build build )
+  PREFIX="${PREFIX:+$PREFIX;}$ROOT/$c/build"
 done
 ```
+> Dropping `-DCMAKE_PREFIX_PATH` gives
+> `find_package … Could not find a package configuration file provided by "slash"`
+> at `vrt/vrtd/CMakeLists.txt:52` — that means libslash isn't visible, not missing.
 **Check:** `ls driver/slash.ko linker/resources/submodules/AVED/sw/AMI/driver/ami.ko`
 
 ---
@@ -172,7 +184,14 @@ vivado -mode tcl
 ```
 ```tcl
 open_hw_manager ; connect_hw_server ; open_hw_target
-program_hw_devices -file dfx_build/amc_pdi/build/felix_slash_amc.pdi [current_hw_device]
+
+# NOTE: on Versal, program_hw_devices has NO -file option. Set PROGRAM.FILE as a
+# property on the device first, then program. Use an ABSOLUTE path to the PDI.
+get_hw_devices                                     ;# list the JTAG chain
+current_hw_device [lindex [get_hw_devices] 0]      ;# or: [get_hw_devices xcvp1552*]
+set_property PROGRAM.FILE {<ABS-PATH>/dfx_build/amc_pdi/build/felix_slash_amc.pdi} [current_hw_device]
+program_hw_devices [current_hw_device]
+refresh_hw_device [current_hw_device]
 exit
 ```
 Then let PCIe re-enumerate:

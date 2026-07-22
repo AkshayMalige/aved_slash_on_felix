@@ -46,8 +46,19 @@ stage_sw() {
     echo "########## SW ##########"
     ( cd driver && make clean && make )                                                   # slash.ko
     ( cd linker/resources/submodules/AVED/sw/AMI/driver && make clean && make )            # ami.ko
+    # The four host components form a find_package() chain:
+    #   libslash <- vrtd <- vrt <- smi
+    # None of them is installed yet at this point, so each must be pointed at the
+    # *build trees* of the ones before it (every CMakeLists does an
+    # export(EXPORT ...), which writes <pkg>Config.cmake into its build dir).
+    # Without this the build only works on a machine that still has the old
+    # .deb-installed libs -- and DEPLOY_RUNBOOK Part 0 purges exactly those.
+    local prefix=""
     for c in driver/libslash vrt/vrtd vrt smi; do
-        ( cd "$c" && rm -rf build && cmake -S . -B build -G Ninja && cmake --build build )
+        ( cd "$c" && rm -rf build \
+            && cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$prefix" \
+            && cmake --build build )
+        prefix="${prefix:+$prefix;}${ROOT}/${c}/build"
     done
     echo "SW_DONE (install + load: see FELIX_SLASH_PLAN.md Stage 3.3)"
 }

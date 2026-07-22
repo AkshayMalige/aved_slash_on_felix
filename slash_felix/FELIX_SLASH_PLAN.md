@@ -74,8 +74,14 @@ dpkg -l | grep -iE '\bami\b|slash|libvrt|vrtd' | grep '^ii'; dkms status | grep 
 ```bash
 ( cd driver && make clean && make )                                              # slash.ko
 ( cd linker/resources/submodules/AVED/sw/AMI/driver && make clean && make )       # ami.ko
+# find_package() chain (libslash <- vrtd <- vrt <- smi): nothing is installed
+# yet, so each build needs the previous build trees on CMAKE_PREFIX_PATH.
+ROOT=$(pwd); PREFIX=""
 for c in driver/libslash vrt/vrtd vrt smi; do
-  ( cd $c && rm -rf build && cmake -S . -B build -G Ninja && cmake --build build )
+  ( cd $c && rm -rf build \
+      && cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$PREFIX" \
+      && cmake --build build )
+  PREFIX="${PREFIX:+$PREFIX;}$ROOT/$c/build"
 done
 ```
 
