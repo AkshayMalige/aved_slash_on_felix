@@ -47,6 +47,19 @@ sudo dpkg --purge v80++ 2>/dev/null || true
 sudo dpkg --purge v80-smi amd-vrt slash-dev 2>/dev/null || true
 sudo apt-get autoremove --purge -y
 
+# 0.2b remove any ad-hoc (non-dpkg) vrtd setup.
+#     CRITICAL: /etc/systemd/system OVERRIDES /lib/systemd/system, and the .deb
+#     installs its units to /lib. A hand-installed unit in /etc therefore keeps
+#     winning after the package is installed -- typically with an ExecStart
+#     pointing at a stale /usr/local binary. dpkg will never warn you about this.
+sudo systemctl disable --now vrtd.socket vrtd.service 2>/dev/null || true
+sudo rm -f /etc/systemd/system/vrtd.service /etc/systemd/system/vrtd.socket
+sudo rm -f /etc/udev/rules.d/99-vrtd.rules      # the .deb ships 60-vrtd.rules in /lib
+sudo rm -f /usr/lib/vrt/vrtd                    # symlink into /usr/local, if present
+sudo systemctl daemon-reload
+sudo udevadm control --reload-rules
+# keep the vrt / vrtd / vrtadmin groups -- the packages reuse them.
+
 # 0.3 force-remove any DKMS leftovers for ALL kernels
 for m in ami/2.4.0 slash/0.1; do sudo dkms remove "$m" --all 2>/dev/null || true; done
 sudo depmod -a
@@ -133,6 +146,10 @@ install them with `apt`. This is the supported path — do not install by hand.
 source /tools/Xilinx/2025.1/Vitis/settings64.sh    # package-deb.sh requires v++ on PATH
 ./scripts/package-deb.sh                           # add --noninteractive to skip the prompt
 ```
+> ⚠️ **Run this AFTER Part 1's `stage_artifacts.sh`, never before.** `pinstall.sh`
+> rsyncs the whole of `linker/resources/` into the `v80++` package — including
+> `abstract_shell/`. Package first and you ship the *previous* build's abstract
+> shell, so anything linked with the installed `v80++` targets the wrong shell.
 That produces **all 15 packages** in `deb/` plus an apt index (`Packages`/`Release`):
 
 | Package | Contents |
@@ -238,8 +255,17 @@ in place after a rebuild, just re-run 4.1 — `dpkg` replaces the installed vers
 
 ## Part 5 — Build the example kernel `00_axilite` → `.vbin`
 
+> ⚠️ **Any `.vbin` built against a previous hardware build is INVALID.** The linker
+> places the kernel against `linker/resources/abstract_shell/abs_shell_slash.dcp`,
+> which Part 1 regenerates every time. A new implementation changes the static
+> routing at the partition boundary, so an old partial PDI no longer matches the new
+> base image. **Whenever you redo Part 1, you must redo the link step below.**
+> The HLS synthesis (`build_hls.sh`) does *not* need redoing — the kernels are
+> independent of the shell; only the link is.
+
 ```bash
 ( cd examples && ./build_hls.sh 00_axilite increment accumulate )     # HLS synth (vp1552)
+                                                                      # skip if kernels unchanged
 HLS=$(pwd)/examples/00_axilite/hls
 V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
   -c examples/00_axilite/config.cfg -p hw \
@@ -251,6 +277,27 @@ V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
 ```
 **Check:** `ls examples/00_axilite/axilite_hw.vbin examples/00_axilite/build/00_axilite`
 (A `.vbin` is a gzip tar: `tar tzf examples/00_axilite/axilite_hw.vbin`.)
+
+---
+
+## Part 5b — Pre-flight check  ⚠️ run this before every hardware session
+
+```bash
+./scripts/preflight_check.sh          # must print FAIL=0 SKIP=0
+```
+One second, entirely offline, and it catches every failure that has cost a hardware
+session on this port:
+
+| Section | Catches |
+|---|---|
+| 1. PS-side DDR route | the PLM-stall root cause — `PMC_NOC_AXI_0` / `LPD_AXI_NOC_0` must map `C0_DDR_LOW0` |
+| 2. AMC load addresses | `amc.elf`'s `0x40000000` segment must fit the mapped 2G low region |
+| 3. Combined PDI | must contain **2** `r5-0` partitions (TCM + DDR) and `rpu_subsystem` id `0x1c000000` |
+| 4. Artifact freshness | staged PDI must be newer than `impl_1` — else you program a stale image |
+| 5. Host stack | modules, all 3 PF bindings, `vrtd.socket`, `vrtadmin` membership |
+
+A `SKIP` in section 4 means `stage_artifacts.sh` has not run since the last
+implementation — treat it as a failure, not a pass.
 
 ---
 
