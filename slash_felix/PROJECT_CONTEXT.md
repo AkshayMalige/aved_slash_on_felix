@@ -79,8 +79,20 @@ Source: `SLASH/linker/src/install.prj/slash.srcs/sources_1/bd/top/top.bd`.
   **MC_MEMORY_DEVICETYPE=Components**, MC_COMPONENT_WIDTH=x16, 72-bit, MC_RANK=1,
   **MC_ROWADDRESSWIDTH=16**, NUM_MC=1, NUM_MCP=4, NUM_NSI=2, MC_INPUTCLK0_PERIOD=5000.
   - **FELIX = ONE controller**: DDR4-2666V(19-19-19), **DEVICETYPE=UDIMMs**, 72-bit,
-    RANK=1, **ROWADDRESSWIDTH=17**, NUM_MC=1, NUM_MCP=4, NUM_NSI=2. (UDIMM+ROW17 differ
-    from V80 Components+ROW16 — proven-good per step1_vp1552, keep as-is.)
+    **RANK=2**, **ROWADDRESSWIDTH=17**, NUM_MC=1, NUM_MCP=4, NUM_NSI=2. (UDIMM+ROW17+RANK2
+    differ from V80 Components+ROW16+RANK1 — proven-good per step1_vp1552, keep as-is.)
+    <!-- corrected 2026-07-22: this line previously said RANK=1. Both the felix design
+         (00_felix_cips_static_region.tcl `CONFIG.MC_RANK {2}`) and the proven-good
+         step1_vp1552/run.tcl say RANK=2. -->
+
+> ⚠️ **The single-channel consolidation in `05_fix_static.tcl` severs the PMC and RPU
+> DDR paths.** `axi_noc_cips/M00_INI → axi_noc_mc_ddr4_0/S00_INI` is disconnected, but
+> `S02_AXI` (PMC, `ps_pmc`) and `S03_AXI` (RPU, `ps_rpu`) still list **only `M00_INI`**
+> as their route to DDR. Result: the PLM cannot load `amc.elf` (21.5 MB @ `0x4000_0000`)
+> → **"PLM stalled during programming", DONE bit LOW**; and the AMC could never reach
+> `HAL_RPU_SHARED_MEMORY_BASE_ADDR 0x3800_0000` → AMC shared-memory magic reads `0x0`.
+> V80 by contrast maps DDR into **both** `PMC_NOC_AXI_0` and `LPD_AXI_NOC_0`
+> (verified in `install.prj/.../top.bd` `addressing`). See §"AMC DDR path gap".
 - **V80 REAL ADDRESS MAP** (host view via cips CPM_PCIE_NOC, the `addressing` block):
   | base | range | what |
   |---|---|---|

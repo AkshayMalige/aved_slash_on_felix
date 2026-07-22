@@ -76,3 +76,13 @@ linker/resources/submodules/AVED/fw/AMC/amc_bsp/
 linker/resources/submodules/AVED/fw/AMC/.Xil/
 # AMI app/driver build outputs
 linker/resources/submodules/AVED/sw/AMI/**/build/
+
+# .deb packaging outputs (scripts/package-deb.sh + package-ami.sh)
+/deb/
+/pbuild/
+# /debian/ is generated: rsynced from packaging/debian/ at build time
+/debian/
+/ami-build/
+linker/src/install.prj
+linker/src/vendor/jinja2/
+linker/src/vendor/markupsafe/

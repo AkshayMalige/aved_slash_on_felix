@@ -50,6 +50,17 @@ sudo apt-get autoremove --purge -y
 # 0.3 force-remove any DKMS leftovers for ALL kernels
 for m in ami/2.4.0 slash/0.1; do sudo dkms remove "$m" --all 2>/dev/null || true; done
 sudo depmod -a
+
+# 0.4 remove anything a previous `cmake --install` put in /usr/local.
+#     dpkg does NOT own these, so they survive every purge above -- and they
+#     SHADOW the packaged copies (/usr/local/lib precedes /usr/lib for ld.so,
+#     /usr/local/bin precedes /usr/bin in PATH). Symptom if you skip this:
+#     the wrong libvrt/vrtd is used and nothing you rebuild takes effect.
+sudo rm -f  /usr/local/lib/lib{slash,vrt,vrtd,vrtdpp}.so*
+sudo rm -rf /usr/local/lib/cmake/{slash,vrt,vrtd}
+sudo rm -rf /usr/local/include/{slash,vrt,vrtd}
+sudo rm -f  /usr/local/bin/{vrtd,vrtd-*,v80-smi,v80++}
+sudo ldconfig
 ```
 
 **If `ami` fails to purge** with `ami.prerm … rmmod … Killed … exit status 137`:
@@ -72,6 +83,7 @@ dpkg -l | grep -iE '\bami\b|slash|libvrt|vrtd' | grep '^ii' | grep -v node-slash
 dkms status | grep -iE 'ami|slash'
 lsmod | grep -iE 'ami|slash|qdma'
 find /lib/modules/$(uname -r) -name 'ami.ko*' -o -name 'slash.ko*'
+ls /usr/local/lib/lib{slash,vrt,vrtd}* /usr/local/bin/{vrtd,v80-smi} 2>/dev/null
 ```
 If anything prints (other than `node-slash`), resolve it before continuing — e.g.
 purge it directly with `sudo dpkg --purge <name>`.
@@ -112,49 +124,115 @@ AMC=linker/resources/submodules/AVED/fw/AMC
 
 ---
 
-## Part 3 — Build the software / drivers  (`./build_all.sh sw`, ~5 min)
+## Part 3 — Build the software packages  (~5 min)
+
+felix uses **the same packaging flow as upstream SLASH**: build `.deb`s, then
+install them with `apt`. This is the supported path — do not install by hand.
 
 ```bash
-( cd driver && make clean && make )                                              # slash.ko (PF1+PF2)
-( cd linker/resources/submodules/AVED/sw/AMI/driver && make clean && make )       # ami.ko  (PF0)
-
-# The host libs are a find_package() chain: libslash <- vrtd <- vrt <- smi.
-# Nothing is installed yet (Part 0 purged the old .debs), so each build must be
-# pointed at the build trees of the ones before it.
-ROOT=$(pwd); PREFIX=""
-for c in driver/libslash vrt/vrtd vrt smi; do
-  ( cd $c && rm -rf build \
-      && cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="$PREFIX" \
-      && cmake --build build )
-  PREFIX="${PREFIX:+$PREFIX;}$ROOT/$c/build"
-done
+source /tools/Xilinx/2025.1/Vitis/settings64.sh    # package-deb.sh requires v++ on PATH
+./scripts/package-deb.sh                           # add --noninteractive to skip the prompt
 ```
-> Dropping `-DCMAKE_PREFIX_PATH` gives
-> `find_package … Could not find a package configuration file provided by "slash"`
-> at `vrt/vrtd/CMakeLists.txt:52` — that means libslash isn't visible, not missing.
-**Check:** `ls driver/slash.ko linker/resources/submodules/AVED/sw/AMI/driver/ami.ko`
+That produces **all 15 packages** in `deb/` plus an apt index (`Packages`/`Release`):
+
+| Package | Contents |
+|---|---|
+| `slash-dkms` | `slash.ko` source → DKMS builds it per kernel (binds **PF1** + **PF2**) |
+| `ami_2.4.0-*.deb` | `ami.ko` (DKMS) + `ami_tool` + libami (binds **PF0**) |
+| `vrtd` | the daemon **+ systemd units + udev rules + `/etc/vrt/vrtd.conf` + the `vrtd` user** |
+| `libslash`, `libvrt`, `libvrtd` (+`-dev`) | host libraries |
+| `v80-smi` | the `v80-smi` CLI |
+| `v80++` | the linker (Part 5 uses the repo copy, not this) |
+| `slash`, `slash-dev`, `slash-sim-emu*` | metapackages |
+
+> **Why packages and not `cmake --install`?** `cmake --install` installs *only the
+> binaries*. Everything that makes `vrtd` actually runnable — the systemd units,
+> the udev rules, `/etc/vrt/vrtd.conf`, the `vrtd` user and the `vrt`/`vrtadmin`
+> groups — is installed by the **package**, exactly as upstream
+> (`packaging/debian/vrtd.install` + `vrtd.postinst`). Installing by hand leaves
+> `vrtd` unable to start: it is **socket-activated**
+> (`main.c:configure_sockets()` → `sd_listen_fds_with_names()`), so running
+> `sudo vrtd` from a shell always exits 1 with *"No socket provided"*.
+
+**felix deltas vs upstream in these scripts** (all in `scripts/`):
+> - `package-deb.sh` — exports `SLASH_PKG_SKIP_ROOT_DESIGN_BUILD=1` (felix's static
+>   shell comes from `dfx_build/` in Part 1, not from this script — this also stops
+>   it wiping `linker/resources/abstract_shell`); drops the SMBus IP prerequisite
+>   check (the FLX-155 has no SMBus).
+> - `package-ami.sh` — restores its temporarily patched AVED files from plain
+>   backups instead of `git checkout` (felix **vendors** AVED, it isn't a
+>   submodule), and picks an interpreter that still provides `pkg_resources`
+>   (setuptools removed it in v81, so a conda `python3` fails).
+> - `pconfigure.sh`, `pbuild.sh`, `pinstall.sh` — **verbatim from SLASH**.
+
+**Check:** `ls deb/*.deb | wc -l` → 15
 
 ---
 
-## Part 4 — Install libraries + load the drivers
+## Part 4 — Install the packages
 
 ```bash
-# 4.1 install the host libraries/daemon/CLI system-wide
-for c in driver/libslash vrt/vrtd vrt smi; do ( cd $c && sudo cmake --install build ); done
-sudo ldconfig
+# 4.1 install everything from the local repo built in Part 3.
+#     ./deb/ has an apt index, so apt resolves the inter-package deps itself.
+sudo apt-get install -y --allow-downgrades \
+    ./deb/libslash_*.deb ./deb/libvrtd_*.deb ./deb/libvrt_*.deb \
+    ./deb/vrtd_*.deb ./deb/v80-smi_*.deb ./deb/slash-dkms_*.deb \
+    ./deb/ami_*_22.04.deb
 
-# 4.2 load the freshly built modules by explicit path — slash FIRST, then ami
-sudo insmod driver/slash.ko
-sudo insmod linker/resources/submodules/AVED/sw/AMI/driver/ami.ko
-lsmod | grep -iE 'ami|slash|qdma'      # both present
-dmesg | tail -40                       # probe + VSEC logs, no errors
+# 4.2 confirm DKMS compiled both modules for THIS kernel
+dkms status | grep -iE 'ami|slash'          # both -> "installed"
+
+# 4.3 join the group that vrtd's default policy grants full access to
+sudo usermod -aG vrtadmin "$USER"
+newgrp vrtadmin                              # or log out/in
+id -nG | tr ' ' '\n' | grep vrtadmin         # must print vrtadmin
+
+# 4.4 modules load automatically on PCI match; if the card was already up, kick it
+sudo modprobe slash; sudo modprobe ami
+lsmod | grep -iE 'ami|slash'
+systemctl status vrtd.socket                 # active (listening)
 ```
-> `ami` matches any Xilinx function and keeps only the one with the hw_discovery
-> VSEC (**PF0** on felix). Loading `slash` first lets it claim PF1/PF2; `ami` then
-> binds PF0 and rejects the rest — confirm in `dmesg`.
+> `ami` matches any Xilinx function and keeps only the one carrying the
+> hw_discovery VSEC (**PF0** on felix); it probe-rejects PF1/PF2 with `-22`, which
+> is normal. `slash` claims **PF1** (`slash_qdma`, `50b5`) and **PF2**
+> (`slash_pcie`, `50b6`) — one module, two PCI drivers.
 
-*(This step needs the card present in Part 6 to be meaningful; you can build Parts
-1–3 anytime, but only load drivers once the board is programmed and enumerated.)*
+> **Never start `vrtd` by hand.** It is socket-activated
+> (`main.c:configure_sockets()` → `sd_listen_fds_with_names()`); `sudo vrtd` always
+> exits 1 with *"No socket provided"*. systemd owns `/run/vrtd.sock` via
+> `vrtd.socket` and hands the FD to the daemon. The `vrtd` package installs
+> `/lib/systemd/system/vrtd.{socket,service}`, `/lib/udev/rules.d/60-vrtd.rules`,
+> `/etc/vrt/vrtd.conf`, `/usr/lib/sysusers.d/vrtd.conf` and the binary at
+> `/usr/lib/vrt/vrtd` (which is where the unit's `ExecStart` points).
+
+> **Permissions:** the shipped `/etc/vrt/vrtd.conf` defines `[role:fullaccess]`
+> (bar-access, qdma, buffer, design-write, clock, pcie-hotplug, raw-mem-access on
+> any device) and grants it to `user:root` and `group:vrtadmin`; everyone else gets
+> `[role:info]` (query only). So **you must be in `vrtadmin`** (step 4.3) or you
+> will be able to list devices but not load a kernel. Add site-specific overrides
+> as drop-ins in `/etc/vrt/vrtd.conf.d/*.conf` rather than editing `vrtd.conf`.
+
+> ⚠️ **`ami` errors are expected if you programmed the base PDI.**
+> `AMC GCQ service not ready` / `Device not ready, reboot required!` means the AMC
+> firmware is not running (you used `felix_cips_wrapper.pdi`, not
+> `felix_slash_amc.pdi`). This does **not** block Part 8 — see the note there.
+
+### Uninstall / reinstall
+
+```bash
+# remove everything this runbook installed (see Part 0 for the stuck-ami case)
+sudo systemctl stop vrtd.socket vrtd.service
+sudo apt-get remove --purge -y ami slash-dkms vrtd v80-smi \
+    libslash libslash-dev libvrt libvrt-dev libvrtd libvrtd-dev
+sudo dpkg --purge v80++                     # NOT via apt -- see Part 0
+sudo apt-get autoremove --purge -y
+
+# then reinstall with 4.1 (rebuild first with Part 3 if sources changed)
+```
+DKMS unregisters both modules on purge, so no `/lib/modules` leftovers. To upgrade
+in place after a rebuild, just re-run 4.1 — `dpkg` replaces the installed versions.
+
+*(Parts 1–5 need no card. Only Part 6 onward needs the powered FLX-155.)*
 
 ---
 
@@ -206,28 +284,45 @@ echo 1 | sudo tee /sys/bus/pci/rescan       # or reboot the host on first cold p
 
 ```bash
 lspci -d 10ee: -nn                          # expect 50b4 (PF0), 50b5 (PF1), 50b6 (PF2)
-lspci -s <BDF> -k | grep -i "in use"        # PF0 -> ami ; PF1/PF2 -> slash_*
-# if drivers not yet loaded, do Part 4 now (card is up), then:
-sudo vrtd &                                 # start the daemon (or: systemctl start vrtd)
+for f in 0 1 2; do echo -n "PF$f -> "; \
+  basename "$(readlink /sys/bus/pci/devices/0000:01:00.$f/driver)" 2>/dev/null || echo "(none)"; done
+# expect: ami / slash_qdma / slash_pcie
+systemctl status vrtd.socket                # active (listening) — never run `vrtd` by hand
 v80-smi list                                # PF0/PF1/PF2/VRTD should all pass
-dmesg | grep -iE 'slash|ami|qdma|vsec'      # binding + VSEC discovery
+sudo dmesg | grep -iE 'slash|ami|qdma|vsec' # binding + VSEC discovery
 ```
 ⚠️ First real check that the three PFs bind and the VSEC (uuid/gcq/gcq_payload) reads back.
+
+`v80-smi list` tells you exactly which piece is missing:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `PF1/PF2 NOT READY: wanted 'slash_qdma'/'slash_ctl', loaded '(none)'` | `slash` module not loaded | `sudo modprobe slash`; if that fails, `dkms status` — the package may not have built for this kernel |
+| `VRTD NOT READY: Failed to open socket` | `vrtd.socket` not running | `sudo systemctl start vrtd.socket`; if it was never installed you skipped Part 4 |
+| lists devices but a kernel load is refused | you are not in `vrtadmin` | Part 4.3, then `newgrp vrtadmin` |
 
 ---
 
 ## Part 8 — Run the design from the host
 
 ```bash
-# get the PF2 (slash) BDF from lspci, then:
-./examples/00_axilite/build/00_axilite <PF2-BDF> examples/00_axilite/axilite_hw.vbin
+# Pass the BOARD-level BDF: domain:bus:device, NO function digit.
+# For a card at 01:00.x that is 0000:01:00 (vrt/src/device.cpp:50 strips a
+# trailing .F with a warning and prepends the 0000: domain).
+./examples/00_axilite/build/00_axilite 0000:01:00 examples/00_axilite/axilite_hw.vbin
 ```
+> **The AMC is not required for this test.** `Device::programDevice()`
+> (`vrt/src/device.cpp:350`) only calls `designWriteFile()`, and vrtd's design
+> writer (`design_writer.c`) DMAs the partial PDI over a `slash_qdma` queue pair —
+> no AMI and no AMC on that path. `reset_with_ami()` runs only for the explicit
+> `RESET_SEQUENCE` hotplug op, which this example never issues. So a dead AMC
+> costs you sensors/management, not kernel swapping.
 What happens: libvrt → `vrtd` → `design_writer` DMAs the partial PDI over QDMA to
 `0x102100000` → the PMC partially reconfigures the `slash` partition → `clock.c`
-sets the kernel clock (BAR4) → `reset.c` re-enumerates (SBR + hotplug) → the kernel
-is live and the app reads/writes it over the BAR and DDR.
-**Success:** the program prints matching `increment → accumulate` results. The card
-blips out/in of PCIe once during the load — that's the swap, not a fault.
+sets the kernel clock (BAR4) → the kernel is live and the app reads/writes it over
+the BAR and DDR. (`reset.c`'s SBR + re-enumeration is a *separate*, explicitly
+requested operation — it does not run here.)
+**Success:** the program prints matching `increment → accumulate` results.
 
 ---
 

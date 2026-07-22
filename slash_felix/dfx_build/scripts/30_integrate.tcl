@@ -133,7 +133,60 @@ foreach space {static_region/aved/cips/CPM_PCIE_NOC_0 static_region/aved/cips/CP
     pin_seg $space *clk_wizard_slash*   0x0000020400000000 0x10000
     pin_seg $space *clk_wizard_service* 0x0000020400010000 0x10000
 }
+
+# ---- DDR into the PMC and RPU address spaces (see 05_fix_static.tcl step 2c) --
+# 05 re-pointed S02_AXI (ps_pmc) and S03_AXI (ps_rpu) at the live DDR door
+# (M01_INI); the assign_bd_address above then finds DDR reachable from both and
+# maps it automatically. Pin ONLY the low region, and only to guarantee it lands
+# at 0x0 -- two firmware addresses are hard-coded into it:
+#   * amc.elf's 21.5 MB LOAD segment at 0x4000_0000 (src/lscript.ld region
+#     blp_axi_noc_mc_C0_DDR_LOW0x4, ORIGIN 0x40000000 LENGTH 0x3E800000). The PLM
+#     writes this during boot; with no route: "PLM stalled during programming" /
+#     DONE bit LOW.
+#   * HAL_RPU_SHARED_MEMORY_BASE_ADDR 0x3800_0000 -- the AMC's runtime shared
+#     memory; without it AMI reports "AMC GCQ service not ready".
+# Both fit inside C0_DDR_LOW0 (0x0, 2G).
+#
+# Deliberately NOT pinning C0_DDR_CH2 (0x60_0000_0000): auto-assign already
+# places it, nothing in the AMC uses it, and forcing it fails the LPD aperture
+# (the R5 is 32-bit and cannot reach 0x60_0000_0000). V80 likewise maps CH2 into
+# PMC_NOC_AXI_0 but NOT into LPD_AXI_NOC_0.
+foreach space {static_region/aved/cips/PMC_NOC_AXI_0 static_region/aved/cips/LPD_AXI_NOC_0} {
+    if {[llength [get_bd_addr_spaces -quiet $space]] == 0} {
+        puts "PIN_WARN: address space $space not found -- PS-side DDR NOT mapped."
+        continue
+    }
+    pin_seg $space *C0_DDR_LOW0* 0x00000000 0x80000000
+}
 puts "PIN_DONE"
+
+# ---- verify the PS-side DDR route actually exists ---------------------------
+# This is the exact gap that stalled the PLM on the first felix bring-up, so fail
+# loudly at build time rather than discovering it again on the JTAG cable.
+# Checks reachability AND that amc.elf's 0x4000_0000 load address really lands
+# inside the mapped low region -- a segment at the wrong offset is just as fatal.
+foreach space {static_region/aved/cips/PMC_NOC_AXI_0 static_region/aved/cips/LPD_AXI_NOC_0} {
+    set sp [get_bd_addr_spaces -quiet $space]
+    if {[llength $sp] == 0} {
+        puts "ERROR: address space $space does not exist. The AMC will not load (PLM stall)."
+        continue
+    }
+    set low [get_bd_addr_segs -quiet -of_objects $sp -filter {NAME =~ *C0_DDR_LOW0*}]
+    if {[llength $low] == 0} {
+        puts "ERROR: $space has NO C0_DDR_LOW0 segment. The AMC will not load (PLM stall)."
+        continue
+    }
+    set off [get_property OFFSET [lindex $low 0]]
+    set rng [get_property RANGE  [lindex $low 0]]
+    # amc.elf: LOAD 0x40000000, MemSiz 0x1500fe0 (src/lscript.ld -> C0_DDR_LOW0)
+    if {$off <= 0x40000000 && ($off + $rng) >= 0x41501000} {
+        puts [format "DDR_OK %s C0_DDR_LOW0 @ 0x%llx range 0x%llx (covers amc.elf 0x40000000)" \
+              $space $off $rng]
+    } else {
+        puts [format "ERROR: %s C0_DDR_LOW0 @ 0x%llx range 0x%llx does NOT cover amc.elf's 0x40000000 load." \
+              $space $off $rng]
+    }
+}
 
 validate_bd_design
 puts "INTEGRATE_VALIDATE_DONE"
