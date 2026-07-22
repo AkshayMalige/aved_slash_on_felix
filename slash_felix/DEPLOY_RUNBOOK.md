@@ -52,7 +52,12 @@ sudo apt-get autoremove --purge -y
 #     installs its units to /lib. A hand-installed unit in /etc therefore keeps
 #     winning after the package is installed -- typically with an ExecStart
 #     pointing at a stale /usr/local binary. dpkg will never warn you about this.
-sudo systemctl disable --now vrtd.socket vrtd.service 2>/dev/null || true
+#     Use `stop`, NOT `disable`. `disable` records a persistent admin decision that
+#     deb-systemd-helper deliberately honours at install time, so the .deb will
+#     install the units and then leave them DISABLED -- you get a correct install
+#     with a dead daemon and "VRTD NOT READY: Failed to open socket".
+#     (If you already ran `disable`, fix it with: sudo systemctl enable --now vrtd.socket)
+sudo systemctl stop vrtd.socket vrtd.service 2>/dev/null || true
 sudo rm -f /etc/systemd/system/vrtd.service /etc/systemd/system/vrtd.socket
 sudo rm -f /etc/udev/rules.d/99-vrtd.rules      # the .deb ships 60-vrtd.rules in /lib
 sudo rm -f /usr/lib/vrt/vrtd                    # symlink into /usr/local, if present
@@ -198,6 +203,13 @@ sudo apt-get install -y --allow-downgrades \
 
 # 4.2 confirm DKMS compiled both modules for THIS kernel
 dkms status | grep -iE 'ami|slash'          # both -> "installed"
+
+# 4.2b make sure the socket is ENABLED and running.
+#      The .deb enables it on a first install, but if the unit was ever `systemctl
+#      disable`d on this machine, deb-systemd-helper honours that and leaves it off.
+sudo systemctl enable --now vrtd.socket
+systemctl is-enabled vrtd.socket            # -> enabled
+systemctl is-active  vrtd.socket            # -> active
 
 # 4.3 join the group that vrtd's default policy grants full access to
 sudo usermod -aG vrtadmin "$USER"
