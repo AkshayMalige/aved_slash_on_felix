@@ -1,7 +1,8 @@
 # Server-crash diagnostic — simple runbook
 
-**The problem:** running `00_axilite` reboots the whole server at the moment
-vrtd DMAs the partial PDI to the PMC (`0x102100000`). Nothing gets logged.
+**The problem:** running `00_axilite` kills the whole server (hang, then a
+manual reset is needed) at the moment vrtd DMAs the partial PDI to the PMC
+(`0x102100000`). Nothing gets logged.
 
 **The plan:** 3 possible causes, and one test for each. Run the steps in
 order. Stop at the first test that fails — that's the root cause.
@@ -44,10 +45,11 @@ no wrong PF, only the cosmetic warning.
 # 1a. install kdump (records kernel panics, if that's what this is)
 sudo apt-get install -y linux-crashdump
 
-# 1b. netconsole: live kernel log to your laptop, survives the crash.
-#     On your laptop/another machine first run:   nc -ulk 6666
-#     Then on the server (every boot before a test):
-sudo modprobe netconsole netconsole=@/,6666@<LAPTOP-IP>/
+# 1b. netconsole: live kernel log to your MacBook, survives the crash.
+#     On the MacBook first run (re-run it if it ever exits):
+#         nc -ul 6666
+#     Then on the server (repeat after EVERY boot, before a test):
+sudo modprobe netconsole netconsole=@/,6666@<MACBOOK-IP>/
 
 # 1c. let Linux (not the BIOS) handle PCIe errors - may stop the reboots
 #     and log the error instead:
@@ -55,6 +57,14 @@ sudo nano /etc/default/grub     # set: GRUB_CMDLINE_LINUX="pcie_ports=native"
 sudo update-grub
 sudo reboot
 ```
+
+# 1d. plug a monitor into the server (or use the one already attached) and
+#     have it showing the console during every crash test. The machine HANGS
+#     rather than cleanly rebooting, so any panic/NMI text that never reaches
+#     the disk may still be sitting on that screen when it dies — photograph
+#     it before pressing reset. That photo can be the whole diagnosis.
+#     Tip: switch a spare TTY to kernel messages so panics land on screen:
+#         Ctrl+Alt+F3, log in, run:  sudo dmesg -w
 
 ## Step 2 — build once, then STOP rebuilding
 
@@ -86,7 +96,7 @@ no PCIe involved.
 ## Step 4 — reboot and baseline (your normal flow)
 
 ```bash
-sudo reboot
+# this server stalls on soft reboot -- use the reset button as usual.
 # after it comes back:
 cd ~/VersalPrjs/felix/felix-xpfm-pcie/porting_slash/slash_felix
 sudo modprobe slash; sudo modprobe ami
@@ -120,8 +130,17 @@ SBI into the right mode over JTAG. Then run `00_axilite` once more:
 
 ## Step 7 — AFTER ANY CRASH: collect evidence (always, before anything else)
 
-When the server comes back from a crash, run these two commands **before**
-you reprogram the card or start the next test:
+When it crashes, the machine will HANG (this server never finishes a soft
+reboot anyway). In order:
+
+1. Look at the **server's monitor** — photograph anything printed there
+   before touching the reset button.
+2. Check the **netconsole listener** on the MacBook — save its output
+   (an empty capture is also a result: it means hardware/firmware hang,
+   not a kernel panic).
+3. Press the reset button.
+4. When it comes back, run these **before** reprogramming the card or
+   starting the next test:
 
 ```bash
 ./scripts/diag/10_after_crash.sh                 # host-side evidence (SEL, logs)
