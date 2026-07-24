@@ -41,30 +41,46 @@ no wrong PF, only the cosmetic warning.
 
 ## Step 1 — one-time setup (do once, today)
 
+**1a. Install kdump** (records a crash dump if the kernel panics):
+
 ```bash
-# 1a. install kdump (records kernel panics, if that's what this is)
 sudo apt-get install -y linux-crashdump
-
-# 1b. netconsole: live kernel log to your MacBook, survives the crash.
-#     On the MacBook first run (re-run it if it ever exits):
-#         nc -ul 6666
-#     Then on the server (repeat after EVERY boot, before a test):
-sudo modprobe netconsole netconsole=@/,6666@<MACBOOK-IP>/
-
-# 1c. let Linux (not the BIOS) handle PCIe errors - may stop the reboots
-#     and log the error instead:
-sudo nano /etc/default/grub     # set: GRUB_CMDLINE_LINUX="pcie_ports=native"
-sudo update-grub
-sudo reboot
 ```
 
-# 1d. plug a monitor into the server (or use the one already attached) and
-#     have it showing the console during every crash test. The machine HANGS
-#     rather than cleanly rebooting, so any panic/NMI text that never reaches
-#     the disk may still be sitting on that screen when it dies — photograph
-#     it before pressing reset. That photo can be the whole diagnosis.
-#     Tip: switch a spare TTY to kernel messages so panics land on screen:
-#         Ctrl+Alt+F3, log in, run:  sudo dmesg -w
+If the "Should kexec-tools handle reboots?" dialog was answered wrong,
+redo it and answer **Yes**:
+
+```bash
+sudo dpkg-reconfigure kexec-tools
+sudo systemctl enable --now kdump-tools
+kdump-config show          # want: "current state: ready to kdump"
+```
+
+**1b. Watch the kernel log on the server's own monitor.** You are sitting at
+the server, so this replaces netconsole (which can't reach the MacBook — it's
+on a different subnet). On the physical monitor:
+
+```
+Ctrl+Alt+F3                # switch to text console tty3
+# log in, then:
+sudo dmesg -w              # live kernel messages fill the screen
+```
+
+Leave that running during every crash test. The machine HANGS rather than
+rebooting cleanly, so if the kernel prints a panic/oops as it dies it will be
+sitting on this screen — **photograph it before pressing reset. That photo
+can be the whole diagnosis.** (If the screen shows nothing at all when it
+hangs, that too is a result: it points to a hard hardware/firmware hang, not
+a kernel bug.)
+
+**1c. Let Linux — not the BIOS — handle PCIe errors.** This can turn the
+silent hang into a logged, survivable error:
+
+```bash
+sudo nano /etc/default/grub     # set: GRUB_CMDLINE_LINUX="pcie_ports=native"
+sudo update-grub
+# then reset the box (this server stalls on soft reboot; use the reset button)
+```
 
 ## Step 2 — build once, then STOP rebuilding
 
@@ -100,10 +116,12 @@ no PCIe involved.
 # after it comes back:
 cd ~/VersalPrjs/felix/felix-xpfm-pcie/porting_slash/slash_felix
 sudo modprobe slash; sudo modprobe ami
-sudo modprobe netconsole netconsole=@/,6666@<LAPTOP-IP>/   # laptop: nc -ulk 6666
 sudo ipmitool sel clear
 ./scripts/diag/00_baseline.sh
 ```
+
+Then on the server's monitor start the live kernel log (Step 1b):
+`Ctrl+Alt+F3` → log in → `sudo dmesg -w`, and leave it up during the test.
 
 ## Step 5 — first crash test: DMA to DDR only (may crash — that's the point)
 
@@ -133,13 +151,12 @@ SBI into the right mode over JTAG. Then run `00_axilite` once more:
 When it crashes, the machine will HANG (this server never finishes a soft
 reboot anyway). In order:
 
-1. Look at the **server's monitor** — photograph anything printed there
-   before touching the reset button.
-2. Check the **netconsole listener** on the MacBook — save its output
-   (an empty capture is also a result: it means hardware/firmware hang,
-   not a kernel panic).
-3. Press the reset button.
-4. When it comes back, run these **before** reprogramming the card or
+1. Look at the **server's monitor** (the `dmesg -w` console from Step 1b) —
+   photograph anything printed there before touching the reset button. A
+   blank screen is also a result: it means a hard hardware/firmware hang,
+   not a kernel panic.
+2. Press the reset button.
+3. When it comes back, run these **before** reprogramming the card or
    starting the next test:
 
 ```bash
@@ -156,9 +173,9 @@ best evidence. JTAG harvest first, reprogram after.
 
 ```
 build once → 00_baseline.sh → JTAG program → jtag harvest + jtag partial test
-→ reboot → modprobe + sel clear + netconsole + 00_baseline.sh
+→ reset → modprobe + sel clear + 00_baseline.sh + (monitor: dmesg -w on tty3)
 → run ONE test (step 5 or 6)
-→ if crash: 10_after_crash.sh + jtag harvest   → send diag_logs/ to Claude
+→ if crash: photo screen → reset → 10_after_crash.sh + jtag harvest → send diag_logs/
 → if pass:  next step
 ```
 
@@ -167,4 +184,4 @@ build once → 00_baseline.sh → JTAG program → jtag harvest + jtag partial t
 Everything new under `diag_logs/`, especially:
 - `jtag_baseline.txt` / `jtag_postcrash.txt` (PLM log + SBI registers)
 - `*_postcrash/sel_after.txt` (the BMC's record of why the machine died)
-- whatever the netconsole listener on your laptop printed (or "nothing")
+- the photo of the server's monitor at crash time (or "screen was blank")
