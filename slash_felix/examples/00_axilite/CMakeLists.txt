@@ -62,3 +62,10 @@ add_vbin(TARGET "axilite_emu" PLATFORM "emu" CFG "${CFG_FILE}" KERNELS ${_KERNEL
 add_executable(${PROJECT_NAME} 00_axilite.cpp)
 target_include_directories(${PROJECT_NAME} PRIVATE ${_VRT_INCLUDES})
 target_link_libraries(${PROJECT_NAME} PRIVATE ${_VRT_LIBS})
+
+# --- Diagnostic: QDMA/DDR data path only, no device programming ---
+# Isolates the QDMA data path from the PMC boot-stream write. See
+# no_program_test.cpp. Build: cmake --build build --target no_program_test
+add_executable(no_program_test no_program_test.cpp)
+target_include_directories(no_program_test PRIVATE ${_VRT_INCLUDES})
+target_link_libraries(no_program_test PRIVATE ${_VRT_LIBS})

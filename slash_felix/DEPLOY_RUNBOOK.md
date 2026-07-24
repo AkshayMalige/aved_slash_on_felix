@@ -167,6 +167,11 @@ That produces **all 15 packages** in `deb/` plus an apt index (`Packages`/`Relea
 | `v80++` | the linker (Part 5 uses the repo copy, not this) |
 | `slash`, `slash-dev`, `slash-sim-emu*` | metapackages |
 
+> The **`-dev` packages are not optional** — `libslash-dev`, `libvrt-dev` and
+> `libvrtd-dev` carry the `*Config.cmake` files, and `v80++` carries the
+> `SlashTools/` CMake modules. Without them Part 5's `cmake` fails with
+> `Could not find a package configuration file provided by "vrtd"`.
+
 > **Why packages and not `cmake --install`?** `cmake --install` installs *only the
 > binaries*. Everything that makes `vrtd` actually runnable — the systemd units,
 > the udev rules, `/etc/vrt/vrtd.conf`, the `vrtd` user and the `vrt`/`vrtadmin`
@@ -199,7 +204,9 @@ That produces **all 15 packages** in `deb/` plus an apt index (`Packages`/`Relea
 sudo apt-get install -y --allow-downgrades \
     ./deb/libslash_*.deb ./deb/libvrtd_*.deb ./deb/libvrt_*.deb \
     ./deb/vrtd_*.deb ./deb/v80-smi_*.deb ./deb/slash-dkms_*.deb \
-    ./deb/ami_*_22.04.deb
+    ./deb/ami_*_22.04.deb \
+    ./deb/libslash-dev_*.deb ./deb/libvrt-dev_*.deb ./deb/libvrtd-dev_*.deb \
+    ./deb/v80++_*.deb
 
 # 4.2 confirm DKMS compiled both modules for THIS kernel
 dkms status | grep -iE 'ami|slash'          # both -> "installed"
@@ -221,6 +228,19 @@ sudo modprobe slash; sudo modprobe ami
 lsmod | grep -iE 'ami|slash'
 systemctl status vrtd.socket                 # active (listening)
 ```
+> ⚠️ **Do NOT expect `v80-smi list` to pass yet.** Until the card is programmed
+> (Part 6) only **PF2** and **VRTD** can come up. `PF0`/`PF1` will report
+> `currently loaded driver: '(none)'` and the kernel log will show:
+> ```
+> qdma_is_config_bar: Invalid config bar, err:-4
+> slash_qdma: probe of 0000:01:00.1 failed with error -22
+> ```
+> That is **correct behaviour with no valid bitstream in the fabric** — `slash_ctl`
+> (PF2) only maps BARs, which the CPM/PCIe block provides from the PS, so it binds
+> regardless; `slash_qdma` (PF1) and `ami` (PF0) must talk to fabric logic, so they
+> fail until a design is loaded. A host reboot does NOT reconfigure the FPGA — if a
+> previous programming attempt left `DONE bit: LOW`, the card stays dead until you
+> re-program it. Full binding is verified in **Part 7**, after Part 6.
 > `ami` matches any Xilinx function and keeps only the one carrying the
 > hw_discovery VSEC (**PF0** on felix); it probe-rejects PF1/PF2 with `-22`, which
 > is normal. `slash` claims **PF1** (`slash_qdma`, `50b5`) and **PF2**
@@ -285,8 +305,13 @@ V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
   -k $HLS/build_increment.xcvp1552-vsva3340-2MHP-e-S/hls/impl/ip/component.xml \
      $HLS/build_accumulate.xcvp1552-vsva3340-2MHP-e-S/hls/impl/ip/component.xml \
   --vivado "$(which vivado)"
-( cd examples/00_axilite && cmake -B build -S . -G Ninja -DSLASH_USE_REPO=ON && cmake --build build )
+( cd examples/00_axilite && rm -rf build && cmake -B build -S . -G Ninja && cmake --build build )
 ```
+> Build against the **installed packages** (the default). Do *not* pass
+> `-DSLASH_USE_REPO=ON` — that switches `CMakeLists.txt:29` to
+> `add_subdirectory(<repo>/vrt)`, and `vrt/CMakeLists.txt:105` then needs
+> `vrtdConfig.cmake` anyway. It was only useful before Part 4 existed, when nothing
+> was installed.
 **Check:** `ls examples/00_axilite/axilite_hw.vbin examples/00_axilite/build/00_axilite`
 (A `.vbin` is a gzip tar: `tar tzf examples/00_axilite/axilite_hw.vbin`.)
 

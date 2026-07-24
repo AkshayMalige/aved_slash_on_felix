@@ -11,10 +11,12 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-PASS=0; FAIL=0; SKIP=0
+PASS=0; FAIL=0; SKIP=0; WARN=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$1"; PASS=$((PASS+1)); }
 bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAIL=$((FAIL+1)); }
 skip() { printf '  \033[33mSKIP\033[0m  %s\n' "$1"; SKIP=$((SKIP+1)); }
+# Non-blocking: true but expected at this point in the flow.
+warn() { printf '  \033[33mWARN\033[0m  %s\n' "$1"; WARN=$((WARN+1)); }
 
 BD=dfx_build/scripts/export_felix_cips_top.tcl
 AMC_ELF=linker/resources/submodules/AVED/fw/AMC/build/amc.elf
@@ -115,9 +117,19 @@ echo "=== 5. Host stack ========================================================
 for m in slash ami; do
     lsmod | grep -q "^${m} " && ok "module '$m' loaded" || bad "module '$m' NOT loaded (modprobe $m)"
 done
+# PF0 (ami) and PF1 (slash_qdma) must talk to FABRIC logic, so they can only bind
+# once a valid design is loaded. PF2 (slash_ctl) only maps BARs, which the CPM/PCIe
+# block provides from the PS, so it binds regardless. Before programming, PF0/PF1
+# unbound is EXPECTED - do not let it block the programming step that fixes it.
 for f in 0 1 2; do
     d=$(basename "$(readlink "/sys/bus/pci/devices/0000:01:00.$f/driver" 2>/dev/null)" 2>/dev/null)
-    [ -n "$d" ] && ok "PF$f bound to '$d'" || bad "PF$f unbound - card not enumerated or slash not loaded"
+    if [ -n "$d" ]; then
+        ok "PF$f bound to '$d'"
+    elif [ "$f" = "2" ]; then
+        bad "PF2 unbound - slash module not loaded, or the card is not enumerated at all"
+    else
+        warn "PF$f unbound - expected until the card is programmed (kernel log shows 'Invalid config bar'). Re-check after Part 6 + PCI rescan."
+    fi
 done
 if systemctl is-active --quiet vrtd.socket; then ok "vrtd.socket active"
 else bad "vrtd.socket inactive - 'sudo systemctl enable --now vrtd.socket'. NEVER run 'vrtd' by hand."; fi
@@ -130,11 +142,12 @@ id -nG | tr ' ' '\n' | grep -qx vrtadmin && ok "you are in group 'vrtadmin'" \
 
 echo
 echo "=========================================================================="
-printf 'PASS=%d  FAIL=%d  SKIP=%d\n' "$PASS" "$FAIL" "$SKIP"
+printf 'PASS=%d  FAIL=%d  WARN=%d  SKIP=%d\n' "$PASS" "$FAIL" "$WARN" "$SKIP"
 if [ "$FAIL" -gt 0 ]; then
-    echo "NOT ready - fix the failures above before programming."
+    echo "NOT ready - fix the FAILs above before programming."
     exit 1
 fi
+[ "$WARN" -gt 0 ] && echo "WARNs are expected before the card is programmed - re-run after Part 6."
 echo "Ready to program."
 echo
 echo "Reminders:"
