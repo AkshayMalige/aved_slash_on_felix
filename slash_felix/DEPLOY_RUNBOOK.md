@@ -351,7 +351,7 @@ open_hw_manager ; connect_hw_server ; open_hw_target
 # property on the device first, then program. Use an ABSOLUTE path to the PDI.
 get_hw_devices                                     ;# list the JTAG chain
 current_hw_device [lindex [get_hw_devices] 0]      ;# or: [get_hw_devices xcvp1552*]
-set_property PROGRAM.FILE {<ABS-PATH>/dfx_build/amc_pdi/build/felix_slash_amc.pdi} [current_hw_device]
+set_property PROGRAM.FILE {/home/synthara/VersalPrjs/felix/felix-xpfm-pcie/porting_slash/slash_felix/dfx_build/amc_pdi/build/felix_slash_amc.pdi} [current_hw_device]
 program_hw_devices [current_hw_device]
 refresh_hw_device [current_hw_device]
 exit
@@ -384,6 +384,79 @@ sudo dmesg | grep -iE 'slash|ami|qdma|vsec' # binding + VSEC discovery
 | `PF1/PF2 NOT READY: wanted 'slash_qdma'/'slash_ctl', loaded '(none)'` | `slash` module not loaded | `sudo modprobe slash`; if that fails, `dkms status` — the package may not have built for this kernel |
 | `VRTD NOT READY: Failed to open socket` | `vrtd.socket` not running | `sudo systemctl start vrtd.socket`; if it was never installed you skipped Part 4 |
 | lists devices but a kernel load is refused | you are not in `vrtadmin` | Part 4.3, then `newgrp vrtadmin` |
+
+---
+
+## Part 7b — Arm the SBI for host-side DFX  ⚠️ REQUIRED on a JTAG-booted card
+
+**Do this once after every JTAG program, before Part 8. Skipping it crashes the
+whole host** (hard PCIe error → server hang → needs the reset button).
+
+```bash
+# card must be programmed (Part 6) AND enumerated (Part 7) first
+xsdb scripts/diag/40_sbi_axi_slave.tcl | tee diag_logs/sbi_fix.txt
+```
+Confirm the output shows:
+```
+SBI_CTRL (0xF1220004): 00000004     <- before (JTAG mode, disabled)
+SBI_CTRL (0xF1220004): 00000009     <- after  (AXI-slave mode, enabled)
+```
+If "after" is not `00000009`, stop — something is holding that register; do not
+run Part 8 or the host will crash.
+
+<details>
+<summary><b>Why this is needed — the mechanism</b></summary>
+
+Part 8 works by having the host **DMA a partial PDI to `0x102100000`**, which is
+the PMC's **slave-boot stream** aperture. For the PMC to accept a bitstream that
+way, its **Slave Boot Interface (SBI)** must be switched to **AXI-slave mode and
+enabled**. That state lives in one register:
+
+| Register | Addr (PMC-local) | Meaning |
+|---|---|---|
+| `SLAVE_BOOT_SBI_CTRL` | `0xF1220004` | bits [4:2] = interface, bit [0] = enable |
+
+Interface encodings (from the PLM source `xloader_sbi.c` in the AMC BSP):
+`0x0` = SelectMAP, `0x4` = **JTAG**, `0x8` = **AXI-slave**. So:
+- `0x4` = interface JTAG, **enable 0**  ← what a JTAG-booted felix card powers up with
+- `0x9` = interface AXI-slave (`0x8`) **| enable (`0x1`)** ← what host DFX needs
+
+When you program felix over JTAG, the PLM boots with `BOOTMODE: 0x0` and loads its
+PDI "from SBI" in **JTAG** mode, leaving `SBI_CTRL = 0x4`. If vrtd then streams the
+partial PDI into the slave-boot FIFO while the SBI is still in JTAG mode and
+disabled, the AXI write is **rejected**. That error propagates back into the CPM
+(the PCIe/QDMA block) as an **uncorrectable error (`CPM_NCR`)**, the PCIe endpoint
+drops off the bus, and the host takes a fatal PCIe error and hangs. (The card's own
+PLM log records this as `PMC EAM ERR1: 0x200` / `CPM_NCR` / `Received CPM PCIE1
+interrupt`; on the host every QDMA register then reads `0xffffffff` — the device is
+gone.)
+
+Writing `SBI_CTRL = 0x9` first puts the SBI exactly where `XLoader_SbiInit()` puts
+it for a PCIe PDI source (`XLOADER_PDI_SRC_PCIE`), so the streamed write is accepted
+and the PMC performs the partial reconfiguration normally.
+
+**Why upstream V80 doesn't need this step:** a production V80 boots its base image
+from **OSPI flash**, not JTAG — a different PLM boot path that leaves the SBI usable.
+Nothing in the SLASH host stack, the base-PDI CDO, or the AMC firmware ever writes
+`0xF1220004` (verified by dumping both the felix and V80 CDOs with `cdoutil`). This
+is therefore a **JTAG-boot bring-up gap, not a felix design bug** — it disappears
+once felix boots from flash (Part 9), or once vrtd is taught to arm the SBI itself
+(see below).
+
+**Open item — does it survive a host reboot?** The SBI register is in the PMC power
+domain, so a *host* reset/PERST should not clear it — but this has not been
+confirmed across a full host reboot yet. If a later run crashes even though you ran
+this step earlier, re-run it (the card keeps its state; re-arming is harmless) and
+tell the maintainer, because that means the permanent fix (below) is needed.
+
+**Permanent fixes (so this manual step goes away):**
+1. Have **vrtd** write the SBI itself before streaming — the register is
+   host-reachable over QDMA at `0x101220004` (the `pspmc_0_psv_pmc_slave_boot`
+   aperture in `CPM_PCIE_NOC_0`). ~10 lines in `design_writer.c`; works on any board.
+2. Add a small **CDO partition** to the base PDI (via `combine_amc_pdi.sh`/bootgen)
+   that writes `0xF1220004 = 0x9` at boot.
+3. **Boot felix from OSPI flash** like V80 (Part 9) — the true production answer.
+</details>
 
 ---
 
@@ -444,11 +517,15 @@ ami_tool reload -d <PF0-BDF>                            # or power-cycle
 | only 1–2 PFs in `lspci` | base image not programmed / needs host reboot after first program |
 | `ami` bound to PF1/PF2 | load `slash.ko` before `ami.ko`; check `ami` rejected non-VSEC PFs in `dmesg` |
 | `v80-smi list` VRTD fail | `vrtd` not running / socket perms — `sudo vrtd`, check `/run/vrtd` |
-| kernel load hangs at reconfig | design_writer→`0x102100000`; check QDMA H2C queue + PLM log (JTAG/XSDB) |
+| **host crashes/hangs when running Part 8** (needs reset button) | **SBI not armed — you skipped Part 7b.** Reprogram (Part 6), re-enumerate, run `xsdb scripts/diag/40_sbi_axi_slave.tcl`, confirm `SBI_CTRL 0xF1220004 = 0x9`, then retry Part 8. |
+| kernel load hangs at reconfig (no crash) | design_writer→`0x102100000`; SBI armed OK but PLM not consuming the stream — check QDMA H2C queue + PLM log (JTAG/XSDB) |
 | `ami_tool sensors` garbage | expected — AMC still has V80 `profile_sensors.h`/`profile_pdr.h`; retarget to FLX-155 |
 | reset/reprogram fails (full stack) | AMC not alive on R5 — verify the AMC PDI booted (XSDB on R5), or use the SBR-only shortcut |
 
 ## Status
-Build side (Parts 1–5) verified on the workstation. Parts 6–9 need the powered
-FLX-155 — not yet run. Watch the two ⚠️ items (`QDMA_LOGIC_BASE`, AMI↔AMC) on first
-hardware bring-up.
+Build side (Parts 1–5) verified on the workstation. **Parts 6–8 verified on the
+powered FLX-155 (2026-07-24): `00_axilite` streams the partial PDI from the host,
+the PMC reconfigures the `slash` partition, both kernels run and the result
+verifies — once Part 7b arms the SBI.** Part 7b is currently a manual JTAG step; see
+its "permanent fixes" note to remove it. Part 9 (flash) not yet run. Watch the two
+⚠️ items (`QDMA_LOGIC_BASE`, AMI↔AMC) for full-stack management.
