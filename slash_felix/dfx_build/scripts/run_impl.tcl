@@ -11,18 +11,38 @@ set here [file dirname [info script]]
 open_project [file join $here .. proj felix_slash.xpr]
 
 # ---- STAGE 1: synthesis (static top + slash/service_layer RMs) ----
-launch_runs synth_1 -jobs 8
-wait_on_run synth_1
+# Only launch if not already complete -- launching a finished run errors in batch
+# ("needs to be reset before launching"). This makes the script re-runnable after
+# a partial reset (e.g. reset_run impl_1 alone).
+if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} {
+    launch_runs synth_1 -jobs 8
+    wait_on_run synth_1
+} else {
+    puts "STAGE 1: synth_1 already complete -- reusing"
+}
 
 # ---- STAGE 2: implementation (place & route of config_1) ----
-launch_runs impl_1 -jobs 8
-wait_on_run impl_1
+if {[get_property PROGRESS [get_runs impl_1]] ne "100%"} {
+    launch_runs impl_1 -jobs 8
+    wait_on_run impl_1
+} else {
+    puts "STAGE 2: impl_1 already complete -- reusing"
+}
 
 # ---- STAGE 3: Versal device image (.pdi) + abstract shells ----
 launch_runs impl_1 -to_step write_device_image -jobs 8
 wait_on_run impl_1
 open_run impl_1
 set _od [get_property DIRECTORY [get_runs impl_1]]
+
+# --- arm the SBI for PCIe slave boot in the base PDI ---
+# write_device_image does NOT emit `boot_device { pcie }` for the felix CIPS
+# (ported from VEK280), so the host-streamed-PDI path would crash the machine.
+# This injects the directive and regenerates felix_cips_wrapper.pdi. See the
+# script header for the full rationale. MUST run before stage_artifacts.sh copies
+# the base PDI onward.
+source [file join $here inject_boot_device_pcie.tcl]
+inject_boot_device_pcie $_od
 
 # --- abstract shells (linker RM place-context; abs_shell_slash.dcp is the file
 #     the v80++ slash link path consumes as resources/abstract_shell/) ---

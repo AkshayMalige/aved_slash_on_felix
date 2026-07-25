@@ -31,7 +31,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # SLASH root
-cd "$(dirname "$0")/.."
+# Resolve the script's own dir ABSOLUTELY, before any cd. Upstream re-evaluates
+# "$(dirname "$0")" later (to find package-ami.sh), but $0 is relative and the cd
+# below changes cwd -- so that only works when invoked as ./scripts/package-deb.sh
+# from the repo root, and breaks with "./package-ami.sh: No such file or directory"
+# when invoked from inside scripts/.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}/.."
 
 # FELIX: the static shell is NOT built here. felix's hardware comes from
 # dfx_build/ (run_all.tcl + run_impl.tcl) and is staged into the linker by
@@ -113,7 +119,7 @@ dpkg-buildpackage \
     --changes-file="${ARTIFACTS_DIR}/slash_${DPKG_PARSED_VERSION}_${DPKG_ARCH}.changes"
 
 # Build AMI package into the same artifacts directory
-ARTIFACTS_DIR="${ARTIFACTS_DIR}" "$(dirname "$0")/package-ami.sh"
+ARTIFACTS_DIR="${ARTIFACTS_DIR}" "${SCRIPT_DIR}/package-ami.sh"
 
 cd "${ARTIFACTS_DIR:-deb}"
 apt-ftparchive packages . > Packages

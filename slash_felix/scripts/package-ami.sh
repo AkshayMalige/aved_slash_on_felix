@@ -27,7 +27,9 @@ set -euxo pipefail
 umask 0022
 
 # SLASH root
-cd "$(dirname "$0")/.."
+# Resolve absolutely before cd, so this works from any cwd (see package-deb.sh).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}/.."
 
 ARTIFACTS_DIR="${ARTIFACTS_DIR:-$(pwd)/ami}"
 AMI_BUILD_DIR="$(pwd)/ami-build"

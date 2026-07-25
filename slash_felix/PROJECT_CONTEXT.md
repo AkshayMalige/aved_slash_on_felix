@@ -6,8 +6,26 @@
 > completes — it should only get more accurate over time.
 > Last updated: 2026-07-21.
 
-## 0. Progress snapshot (2026-07-21) — read this first
+## 0. Progress snapshot (2026-07-24) — read this first
 
+- **On-card bring-up: WORKING.** `00_axilite` + a second example run on the powered
+  FLX-155 (2026-07-24): host streams the partial PDI, PMC reconfigures `slash`, kernels
+  verify. See `DEPLOY_RUNBOOK.md`. Two hardware bugs found + fixed during bring-up:
+  1. **PMC/RPU had no NoC route to DDR** (single-DDR consolidation left `S02_AXI`/`S03_AXI`
+     on the dead `M00_INI`) → PLM stalled loading `amc.elf` to DDR / AMC shared-mem dead.
+     Fixed in `05_fix_static.tcl` (re-point to `M01_INI`) + `30_integrate.tcl` (map DDR into
+     `PMC_NOC_AXI_0`/`LPD_AXI_NOC_0`, with a build-time assertion). Verified on silicon.
+  2. **Base PDI missing `boot_device { pcie }`** → SBI never armed for host DFX → the
+     host-streamed-PDI DMA hard-crashed the server (SBI stuck in JTAG mode → CPM
+     uncorrectable error → PCIe endpoint dropped, no Linux log). Root cause: felix CIPS
+     ported from VEK280 (SD/JTAG boot) never declared PCIe boot; V80's PDI has the directive.
+     Every CIPS/PS_PMC/CPM knob is otherwise identical — the directive is synthesized by
+     `write_device_image`, not a settable property we could find. **Permanent fix:**
+     `dfx_build/scripts/inject_boot_device_pcie.tcl` (called from `run_impl.tcl`) injects it
+     into the BIF + re-bootgens; idempotent + self-verifying. Replaces the manual
+     `scripts/diag/40_sbi_axi_slave.tcl` (write `SBI_CTRL 0xF1220004 = 0x9`), kept as a
+     fallback. **Built + verified offline (2026-07-24); NOT yet re-verified on silicon
+     without the manual step** — next on-card run confirms.
 - **Hardware/DFX shell: DONE + verified.** `dfx_build/` builds the felix_cips static
   region + `slash` & `service_layer` DFX partitions, runs synth→impl→device image, and
   exports the abstract shell (`run_impl.tcl`). See `BUILD_RUNBOOK.md`.
