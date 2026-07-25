@@ -35,14 +35,18 @@ wait_on_run impl_1
 open_run impl_1
 set _od [get_property DIRECTORY [get_runs impl_1]]
 
-# --- arm the SBI for PCIe slave boot in the base PDI ---
+# --- arm the SBI for PCIe slave boot in the base PDI (host-side DFX) ---
 # write_device_image does NOT emit `boot_device { pcie }` for the felix CIPS
-# (ported from VEK280), so the host-streamed-PDI path would crash the machine.
-# This injects the directive and regenerates felix_cips_wrapper.pdi. See the
-# script header for the full rationale. MUST run before stage_artifacts.sh copies
-# the base PDI onward.
+# (ported from VEK280), so without this the host-streamed-PDI path leaves the SBI
+# in JTAG mode and the first DFX write crashes the machine. This injects the
+# directive and regenerates felix_cips_wrapper.pdi, arming it permanently so the
+# runtime workaround (scripts/diag/40_sbi_axi_slave.tcl) is not needed.
+# NOTE: an earlier note blamed this for a `PLM 0x32B` JTAG-program failure -- that
+# was a MISATTRIBUTION; the real cause was a marginally-seated DDR DIMM (DQS-gate
+# calibration). Reseating the DIMM fixed 0x32B; boot_device{pcie} is independent.
 source [file join $here inject_boot_device_pcie.tcl]
 inject_boot_device_pcie $_od
+
 
 # --- abstract shells (linker RM place-context; abs_shell_slash.dcp is the file
 #     the v80++ slash link path consumes as resources/abstract_shell/) ---

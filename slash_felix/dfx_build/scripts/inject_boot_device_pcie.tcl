@@ -1,5 +1,21 @@
 # inject_boot_device_pcie.tcl -- arm the SBI for PCIe slave boot in the base PDI.
 #
+# ✅ ENABLED IN THE DEFAULT FLOW (run_impl.tcl calls this on every build).
+# This is the PERMANENT fix for the host-side DFX crash: it arms the SBI in the
+# base PDI so scripts/diag/40_sbi_axi_slave.tcl is no longer needed at runtime.
+#
+# HISTORY / CORRECTION (2026-07-25): an earlier session DISABLED this, blaming it
+# for a `PLM Error Major 0x32B` (XLOADER_ERR_DEFERRED_CDO_PROCESS -- a deferred
+# mask_poll mismatch) JTAG-program failure with DONE bit LOW. That was a
+# MISATTRIBUTION. The 0x32B was a marginally-seated DDR DIMM: DDRMC0 DQS-gate
+# calibration (F0_DQS_GATE_CAL) didn't complete, so the boot CDO's "DDR ready"
+# mask_poll never asserted. Proof: (a) A/B PDIs differing ONLY by this directive
+# both failed 0x32B identically; (b) the DDR/NoC/PMC config CDOs are byte-identical
+# between the working and failing builds; (c) reseating the DIMM fixed 0x32B and
+# JTAG programming succeeded. boot_device{pcie} is independent of DDR calibration.
+# If JTAG programming ever fails 0x32B again, suspect the DDR DIMM/PDN margin
+# (reseat, program cold), NOT this directive.
+#
 # WHY THIS EXISTS
 # --------------
 # The felix CIPS was ported from the VEK280 eval board (SD/JTAG boot, no
