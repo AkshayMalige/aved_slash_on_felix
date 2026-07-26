@@ -78,6 +78,9 @@ builds and installs the same 15 packages as upstream SLASH.
 | `dfx_build/amc_pdi/felix_pdi_combine.bif` + `combine_amc_pdi.sh` | bootgen combine of felix base PDI + `amc.elf` → `felix_slash_amc.pdi` |
 | `dfx_build/scripts/inject_boot_device_pcie.tcl` | **arms the SBI for host DFX.** Adds `boot_device { pcie }` to the base image's BIF and re-runs bootgen (called from `run_impl.tcl` after `write_device_image`). The felix CIPS, ported from VEK280 (SD/JTAG boot), lacked this directive that V80's PCIe-card PDI has; without it the host-streamed-PDI DMA hard-crashes the server (SBI stuck in JTAG mode → CPM uncorrectable error). Idempotent + self-verifying. Replaces the manual `scripts/diag/40_sbi_axi_slave.tcl` workaround. |
 | `scripts/stage_artifacts.sh` | copies `run_impl.tcl` outputs (dcp/pdi/xsa) into the linker/AMC locations |
+| `scripts/preflight_check.sh` | offline pre-hardware verification (DDR-route assertion, AMC load addr, combined-PDI contents, artifact freshness, host stack) — run before a JTAG session |
+| `scripts/diag/` (6 files) | SBI/JTAG bring-up diagnostics: `40_sbi_axi_slave.tcl` (manual SBI arm — writes `SBI_CTRL 0xF1220004 = 0x9`, the fallback for `inject_boot_device_pcie.tcl`), `20_jtag_harvest.tcl` + `30_jtag_partial_load.tcl` (JTAG state/partial-PDI probes), `00_baseline.sh` + `10_after_crash.sh` (host PCIe state capture), `README.md` |
+| `examples/00_axilite/no_program_test.cpp` | diagnostic: exercises the QDMA→NoC→DDR data path with `program=false` (no PMC boot-stream write), to isolate DMA-path faults from DFX-from-host |
 | `build_all.sh` | one-command clean build (`hw`\|`fw`\|`sw`\|`all`) |
 | `FELIX_SLASH_PLAN.md`, `DEPLOY_RUNBOOK.md`, `BUILD_RUNBOOK.md`, `DRIVERS_BUILD_TEST_FLASH.md`, `CONCEPTS.md`, `linker/FELIX_LINKER_GUIDE.md`, `linker/FELIX_LINKER_PORT.md`, `PROJECT_CONTEXT.md`, `diagrams.md`, `plan_070726.md`, `change_log.md` | felix port documentation |
 | `iprepo/` | felix `dfx_build` IP repo (`hw_discovery`, `uuid_rom`, `cmd_queue`, `axi4_full_passthrough`, `hbm_bandwidth`) |
@@ -111,6 +114,8 @@ builds and installs the same 15 packages as upstream SLASH.
 | `linker/resources/aved/` | V80 AVED XSA/linker resources — replaced by felix `dfx_build` outputs |
 | `linker/resources/abstract_shell/` (SLASH's V80 one) | felix generates its own abstract shell (`stage_artifacts.sh` + `gen_slash_base.tcl`); gitignored, not committed |
 | `submodules/v80-vitis-flow/` | a V80 Vitis-flow example — not needed for the felix build |
+| `examples/{02_chain, 03_multiple_boards, 04_freq}` | additional SLASH example designs — not ported to felix (only `00_axilite` + `01_aximm` were retargeted; candidates for later) |
+| `scripts/package-rpm.sh` | RPM packaging helper — felix is Debian-only (see `packaging/rpm/` above) |
 | `.github/`, `.gitmodules`, `.readthedocs.yaml` | CI / submodule / RTD-docs config — felix is vendored (no submodules) and self-documented |
 | `packaging/rpm/` | RPM packaging — felix targets Debian/Ubuntu only; `packaging/debian/` **is** kept and used (see §1a) |
 | `scripts/{root-design-build,root-design-clean}.sh` | rebuild V80's static shell — felix's hardware is built in `dfx_build/` instead, and `package-deb.sh` sets `SLASH_PKG_SKIP_ROOT_DESIGN_BUILD=1` so they are never called |
@@ -124,7 +129,11 @@ builds and installs the same 15 packages as upstream SLASH.
 ## 5. Quick tally
 
 - **Modified vs SLASH/AVED:** 8 linker files + 2 AMC files + 8 example files + 2 packaging scripts = **20**.
-- **New felix source (non-doc, non-hw):** felix AMC profile (10, of which 1 edited) + 4 helper scripts.
+- **New felix source (non-doc, non-hw):** felix AMC profile (10, of which 1 edited);
+  helper scripts `stage_artifacts.sh`, `build_all.sh`, `preflight_check.sh`,
+  `gen_slash_base.tcl`, `dfx_build/amc_pdi/{combine_amc_pdi.sh,felix_pdi_combine.bif}`,
+  `dfx_build/scripts/inject_boot_device_pcie.tcl`; `scripts/diag/` (6 files);
+  `examples/00_axilite/no_program_test.cpp`.
 - **Vendored from SLASH verbatim:** `scripts/{pconfigure,pbuild,pinstall}.sh`.
 - **Unchanged (vendored):** all of `driver/ vrt/ smi/ cmake/ packaging/ qdma_drv/ AMI/`, most of `AMC/` and the linker.
 - **The felix delta is small and localized** — because SLASH is board-discovered at
