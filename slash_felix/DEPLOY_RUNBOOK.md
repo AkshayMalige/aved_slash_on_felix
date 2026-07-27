@@ -323,6 +323,29 @@ V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
 **Check:** `ls examples/00_axilite/axilite_hw.vbin examples/00_axilite/build/00_axilite`
 (A `.vbin` is a gzip tar: `tar tzf examples/00_axilite/axilite_hw.vbin`.)
 
+### Part 5a — Build the `01_aximm` example → `.vbin`
+
+Same flow, different kernels: `01_aximm` chains two kernels — `offset` (computes
+`in*m+n`, reads DDR0) streams over an on-chip AXI-Stream into `dma` (writes DDR1).
+Same ⚠️ rule applies: **redo the link step whenever you redo Part 1.** Run as **one
+block from the repo root** (`$HLS` and `$(pwd)` must resolve in the same shell).
+
+```bash
+( cd examples && ./build_hls.sh 01_aximm offset dma )                 # HLS synth (vp1552)
+                                                                      # skip if kernels unchanged
+HLS=$(pwd)/examples/01_aximm/hls
+V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
+  -c examples/01_aximm/config.cfg -p hw \
+  -o examples/01_aximm/aximm_hw.vbin \
+  -k $HLS/build_offset.xcvp1552-vsva3340-2MHP-e-S/hls/impl/ip/component.xml \
+     $HLS/build_dma.xcvp1552-vsva3340-2MHP-e-S/hls/impl/ip/component.xml \
+  --vivado "$(which vivado)"
+( cd examples/01_aximm && rm -rf build && cmake -B build -S . -G Ninja && cmake --build build )
+```
+**Check:** `ls examples/01_aximm/aximm_hw.vbin examples/01_aximm/build/01_aximm`
+**Run** (PF1/QDMA BDF): `./examples/01_aximm/build/01_aximm 01:00.1 examples/01_aximm/aximm_hw.vbin`
+→ expect `Test passed` (verifies `out[i] == in[i]*3 + 2`).
+
 ---
 
 ## Part 5b — Pre-flight check  ⚠️ run this before every hardware session
