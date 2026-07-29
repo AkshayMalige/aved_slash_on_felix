@@ -251,8 +251,14 @@ protected:
             }
             return buffer;
         }
-        
-        return nullptr;
+
+        // FELIX fix: a FULL superblock must signal "out of space" by throwing, so the
+        // caller (Allocator::allocate) catches std::bad_alloc and creates a NEW superblock
+        // (i.e. the next DDR region). The original `return nullptr` handed back a null
+        // UntypedBuffer that was silently wrapped -> getPhysAddr() segfault, and the
+        // multi-superblock path (needed for >512MB / full 16GB) never ran. See the
+        // try/catch(std::bad_alloc) sites in allocator.cpp:Allocator::allocate.
+        throw std::bad_alloc();
     }
 
     void deallocate(const UntypedBuffer& whole, UntypedBuffer buffer, const char* tooSmallError, const char* ownershipError) {
@@ -312,6 +318,12 @@ protected:
 
 /**
  * @brief Superblock managing 2 MB -- 64 MB sub-allocations via buddy system.
+ *
+ * Kept at 64 MB (original). The real FELIX fix is in BuddySuperblockBase::allocate():
+ * a FULL superblock now THROWS std::bad_alloc (was `return nullptr`), so the
+ * allocator rolls over to a NEW superblock = the next DDR region. That makes the
+ * multi-superblock cascade work, so the full 16 GB DDR is usable as multiple
+ * buffers without needing a larger superblock here.
  */
 class LargeBlockSuperblock : public LargeBlock, private BuddySuperblockBase<21, 26> {
     using Buddy = BuddySuperblockBase<21, 26>;  // 2MB - 64MB

@@ -39,7 +39,10 @@ int main(int argc, char* argv[]) {
     }
     const std::string bdf = argv[1];
     const std::string vbin = argv[2];
-    const uint32_t words = (argc >= 4) ? static_cast<uint32_t>(std::strtoul(argv[3], nullptr, 0)) : (1u << 20);
+    // Default 16 MB/port (262144 x 512-bit words). Kept modest because vrtd currently
+    // exposes only a small (~128 MB) device buffer pool; larger per-port sizes x NP
+    // ports can exhaust it and (until vrt null-checks getPhysAddr) segfault.
+    const uint32_t words = (argc >= 4) ? static_cast<uint32_t>(std::strtoul(argv[3], nullptr, 0)) : 262144u;
     const int iters = (argc >= 5) ? std::atoi(argv[4]) : 5;
     if (words == 0) { std::cerr << "words_per_port must be > 0\n"; return 1; }
 
@@ -97,9 +100,9 @@ int main(int argc, char* argv[]) {
 
         std::cout << "\n================ DDR bandwidth (kernel-time only) ================\n";
         std::cout << std::fixed;
-        std::cout << "  Read   (4 ports): " << std::setprecision(2) << std::setw(7) << rd.first
+        std::cout << "  Read   (" << NP << " ports): " << std::setprecision(2) << std::setw(7) << rd.first
                   << " GB/s   (" << std::setprecision(3) << rd.second << " ms)\n";
-        std::cout << "  Write  (4 ports): " << std::setprecision(2) << std::setw(7) << wr.first
+        std::cout << "  Write  (" << NP << " ports): " << std::setprecision(2) << std::setw(7) << wr.first
                   << " GB/s   (" << std::setprecision(3) << wr.second << " ms)\n";
         std::cout << "==================================================================\n";
         std::cout << "  DDR4-2666 single-channel theoretical peak ~21.3 GB/s (~15-18 realistic).\n";

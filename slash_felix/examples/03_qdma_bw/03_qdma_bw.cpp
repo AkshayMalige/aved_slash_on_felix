@@ -42,7 +42,7 @@ int main(int argc, char* argv[]) {
     const std::string vbin = argv[2];
     std::vector<size_t> sizesMB;
     if (argc >= 4) sizesMB = { static_cast<size_t>(std::strtoul(argv[3], nullptr, 0)) };
-    else sizesMB = { 1, 4, 16, 64 };
+    else sizesMB = { 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 };
     const int iters = (argc >= 5) ? std::atoi(argv[4]) : 20;
 
     try {
@@ -57,34 +57,40 @@ int main(int argc, char* argv[]) {
         std::cout << std::fixed;
 
         for (size_t mb : sizesMB) {
-            const size_t bytes = mb << 20;
-            const size_t n = bytes / sizeof(uint32_t);
-            vrt::Buffer<uint32_t> b(device, n, k.argMemoryConfig("gmem0"));
-            for (size_t j = 0; j < n; j++) b[j] = static_cast<uint32_t>(j);
+            try {
+                const size_t bytes = mb << 20;
+                const size_t n = bytes / sizeof(uint32_t);
+                vrt::Buffer<uint32_t> b(device, n, k.argMemoryConfig("gmem0"));
+                for (size_t j = 0; j < n; j++) b[j] = static_cast<uint32_t>(j);
 
-            double bestH = 0.0;
-            for (int it = 0; it < iters; it++) {
-                auto t0 = Clock::now();
-                b.sync(vrt::SyncType::HOST_TO_DEVICE);
-                auto t1 = Clock::now();
-                const double g = static_cast<double>(bytes) / secondsBetween(t0, t1) / 1e9;
-                if (g > bestH) bestH = g;
+                double bestH = 0.0;
+                for (int it = 0; it < iters; it++) {
+                    auto t0 = Clock::now();
+                    b.sync(vrt::SyncType::HOST_TO_DEVICE);
+                    auto t1 = Clock::now();
+                    const double g = static_cast<double>(bytes) / secondsBetween(t0, t1) / 1e9;
+                    if (g > bestH) bestH = g;
+                }
+                double bestD = 0.0;
+                for (int it = 0; it < iters; it++) {
+                    auto t0 = Clock::now();
+                    b.sync(vrt::SyncType::DEVICE_TO_HOST);
+                    auto t1 = Clock::now();
+                    const double g = static_cast<double>(bytes) / secondsBetween(t0, t1) / 1e9;
+                    if (g > bestD) bestD = g;
+                }
+                std::cout << "   " << std::setw(4) << mb << " MB      "
+                          << std::setprecision(2) << std::setw(7) << bestH << " GB/s           "
+                          << std::setw(7) << bestD << " GB/s\n";
+            } catch (const std::exception& e) {
+                // A scan must not abort on one failing size -- report it and keep going.
+                std::cout << "   " << std::setw(4) << mb << " MB        FAILED: " << e.what() << "\n";
             }
-            double bestD = 0.0;
-            for (int it = 0; it < iters; it++) {
-                auto t0 = Clock::now();
-                b.sync(vrt::SyncType::DEVICE_TO_HOST);
-                auto t1 = Clock::now();
-                const double g = static_cast<double>(bytes) / secondsBetween(t0, t1) / 1e9;
-                if (g > bestD) bestD = g;
-            }
-            std::cout << "   " << std::setw(4) << mb << " MB      "
-                      << std::setprecision(2) << std::setw(7) << bestH << " GB/s           "
-                      << std::setw(7) << bestD << " GB/s\n";
         }
 
-        std::cout << "\n  Buffers live in card DDR, so H2D/D2H are bounded by\n"
-                  << "  min(PCIe Gen5x8 ~28 GB/s, DDR ~21 GB/s) -> expect to approach the DDR ceiling.\n\n";
+        std::cout << "\n  Host<->card QDMA bandwidth vs transfer size. Buffers live in card DDR,\n"
+                  << "  so it is bounded by min(PCIe link, DDR ~21 GB/s). This card links at\n"
+                  << "  Gen3 x8 (~7 GB/s, downgraded from Gen5) -> that is the practical QDMA ceiling.\n\n";
         device.cleanup();
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;

@@ -660,3 +660,69 @@ base PDI rebuilt with the fix is verified to carry `boot_device [pcie]` through
 program the fixed PDI and run the examples *without* `40_sbi_axi_slave.tcl` to
 confirm. Part 9 (flash) not yet run. Watch the two ⚠️ items (`QDMA_LOGIC_BASE`,
 AMI↔AMC) for full-stack management.
+
+---
+
+## Appendix — Upstream `vrt` allocator bug (REPORT TO SLASH TEAM)
+
+**Found + fixed on FELIX 2026-07-29. This is a bug in the shared SLASH/`vrt` host
+library, not FELIX-specific — worth reporting upstream (ESnet/AMD SLASH).**
+
+**Symptom:** host process **segfaults** (in `vrtd::Buffer::getPhysAddr` ←
+`vrt::Buffer::initAllocate`) when the total of concurrently-live device buffers
+exceeds **one 64 MB superblock** — e.g. two 64 MB `vrt::Buffer`s at once. A single
+64 MB buffer, or several small buffers ≤ 64 MB total, work fine.
+
+**Root cause:** `vrt/include/vrt/allocator/allocator.hpp`,
+`BuddySuperblockBase::allocate()` returned **`nullptr`** when a superblock is full
+instead of **throwing `std::bad_alloc`**. The caller
+`Allocator::allocate()` (`vrt/src/allocator/allocator.cpp`) wraps each superblock
+in `try { ... } catch (const std::bad_alloc&) { continue; }` so it can **roll over
+to a new superblock (= the next DDR region)**. Because a full superblock returned
+null instead of throwing, that `catch` never fired: the null `UntypedBuffer` was
+silently wrapped in a `MediumBlock` and returned, then `getPhysAddr()` dereferenced
+its null backing → segfault. The multi-superblock path was therefore **dead**, so
+only the first ~64 MB of DDR was ever usable.
+
+**Why it never surfaced on V80:** V80 has **HBM**, so large buffers were allocated
+from HBM regions; the DDR "superblock full → make another" path was never
+exercised. FELIX has **no HBM** (one DDR channel does everything), so it hits it
+immediately.
+
+**Fix (one line):** in `BuddySuperblockBase::allocate()`, replace the trailing
+`return nullptr;` with `throw std::bad_alloc();`. The rollover then works and the
+**full 16 GB DDR becomes usable** as multiple buffers. Rebuild + reinstall `vrt`
+only (`./build_all.sh sw` → `dpkg -i deb/libvrt* deb/libvrtd* deb/vrtd*`); no
+driver/DKMS reinstall, no FPGA rebuild.
+
+**Verified on FELIX:** `02_ddr_bw` at 2×64 MB and 2×512 MB (1 GB) both pass after
+the fix; vrtd log shows a **second** `Buffer opened` at a new region address
+(`0x60004000000` / `0x60020000000`). Before the fix, 2×64 MB segfaulted.
+
+**Remaining (design, not a bug):** a **single** buffer is still capped at **512 MB**
+(the daemon `device_memory_map_allocate` serves one 512 MB region per allocation,
+`vrt/vrtd/src/allocator.h`). Total across many ≤512 MB buffers reaches the full
+16 GB. One >512 MB contiguous buffer would need a daemon change to span regions.
+
+### Second upstream bug — `vrt` QDMA sync does 4 KB transfers (REPORT TOO)
+
+**Found + fixed on FELIX 2026-07-29. Also a shared SLASH/`vrt` bug.**
+
+**Symptom:** host↔card DMA (`vrt::Buffer::sync`) tops out at **~0.3 GB/s** regardless
+of buffer size — nothing to do with NoC QoS (a DDR *kernel* write hits 23.8 GB/s) or
+the link.
+
+**Root cause:** `vrt/vrtd/libvrtd/src/buffer.c`, `vrtd_buffer_sync_to_device` /
+`vrtd_buffer_sync_from_device` transferred the buffer in **`TRANSFER_STEP_SIZE = 4 KB`
+chunks** — one `write()`/`read()` syscall + QDMA descriptor per 4 KB. A 64 MB transfer
+= **16,384** syscalls, so per-transfer overhead dominates and the link sits mostly idle.
+
+**Fix:** replace the 4-KB-step loop with a single `write()`/`read()` of the **whole
+range** (keep a resume loop for short transfers); the QDMA MM driver then builds one
+scatter-gather DMA over all the (hugepage-backed) pages. Host-lib rebuild only.
+
+**Verified on FELIX:** `03_qdma_bw` went **0.30 → ~3.4 GB/s** (~11×). Remaining gap to
+the link is (a) the smallest QDMA ring (`VRTD_QDMA_RING_SZ_IDX = 0`) and single
+synchronous queue, and (b) the PCIe link training at **Gen3 ×8 (~7 GB/s)** instead of
+Gen5 (`LnkSta: 8GT/s downgraded` — a signal-integrity/slot issue, not software). So
+QDMA is bounded ~7 GB/s here until the Gen5 link is restored.

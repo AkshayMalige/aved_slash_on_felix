@@ -10,7 +10,8 @@ Build outputs (`*.o/*.ko/*.so`, `build/`, `amc_bsp/`, `ip/`, `*.dcp/*.pdi/*.xsa`
 are excluded from the comparison.
 
 **Headline:** the drivers, host libraries and daemon are **byte-identical** to
-SLASH (device IDs + address map were matched during the hardware port). All felix
+SLASH (device IDs + address map were matched during the hardware port) — **except
+one upstream bug fix in `vrt` (allocator, 2026-07-29, see below)**. All other felix
 deltas are concentrated in the **linker** (resources + a few emit modules), the
 **AMC firmware profile**, and the **examples**.
 
@@ -20,6 +21,8 @@ deltas are concentrated in the **linker** (resources + a few emit modules), the
 
 | File | What changed | Why |
 |---|---|---|
+| `vrt/include/vrt/allocator/allocator.hpp` | **upstream bug fix (2026-07-29):** `BuddySuperblockBase::allocate()` `return nullptr` → `throw std::bad_alloc()` when a superblock is full | full superblock returned null instead of throwing, so `Allocator::allocate`'s `catch(bad_alloc)` never rolled over to a new superblock → null wrapped → `getPhysAddr` segfault. Broke multi-superblock DDR (only ~64 MB usable). V80 never hit it (big buffers→HBM); FELIX (no HBM) does. Fix unlocks full 16 GB. **Report to SLASH team.** See `DEPLOY_RUNBOOK.md` Appendix. |
+| `vrt/vrtd/libvrtd/src/buffer.c` | **upstream bug fix (2026-07-29):** `vrtd_buffer_sync_to/from_device` transfer loop `4 KB TRANSFER_STEP_SIZE` chunks → single whole-range `write()`/`read()` | host↔card DMA did one syscall+QDMA descriptor per 4 KB (16 K syscalls for 64 MB) → capped ~0.3 GB/s. One big transfer lets the QDMA MM driver do a single scatter-gather DMA → **0.30 → ~3.4 GB/s** (then bounded by ring size + Gen3 link). **Report to SLASH team.** |
 | `linker/resources/bd_ports.txt` | removed 64 HBM + 8 MEM lines; kept DDR0-3 / VIRT0-3 / HOST | felix has 1 DDR channel, no HBM |
 | `linker/resources/slash.tcl` | stripped HBM/DCMAC (1336→623 lines); DDR apertures `{0x0 2G}{0x600… 32G}`; clock/reset boundary `user_clk`/`arstn` → `slash_clk`/`slash_resetn` | felix topology + boundary |
 | `linker/resources/base/scripts/slash_base.tcl` | replaced V80's 4016-line recipe with a 97-line felix boundary recipe | felix partition boundary |

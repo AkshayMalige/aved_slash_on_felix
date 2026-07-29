@@ -62,7 +62,12 @@
 #define MAP_HUGE_2MB (21UL << MAP_HUGE_SHIFT)
 #endif
 
-#define TRANSFER_STEP_SIZE (4ULL * 1024ULL) // 4K
+#define TRANSFER_STEP_SIZE (4ULL * 1024ULL) // 4K (device-offset alignment unit)
+// Max bytes per single write()/read() to the QDMA MM qpair. Large (few syscalls ->
+// high bandwidth) but bounded UNDER the QDMA MM descriptor length limit (2^28 = 256 MB);
+// an unbounded write() of e.g. 512 MB errors in the driver. The sync loops resume
+// across chunks, so any buffer size still transfers correctly.
+#define TRANSFER_MAX_CHUNK (128ULL * 1024ULL * 1024ULL) // 128 MB
 
 enum vrtd_ret vrtd_buffer_create_raw(
     int sock_fd,
@@ -202,17 +207,26 @@ enum vrtd_ret vrtd_buffer_sync_to_device(
         return VRTD_RET_INTERNAL_ERROR;
     }
 
-    for (uint64_t curr_offset = effective_offset; curr_offset < end_offset; curr_offset += TRANSFER_STEP_SIZE) {
-        ssize_t bytes_written = 0;
-        while (bytes_written < TRANSFER_STEP_SIZE) {
-            ssize_t bw = write(buffer->qpair_fd,
-                               (uint8_t *) buffer->buf + curr_offset + bytes_written,
-                               TRANSFER_STEP_SIZE - bytes_written);
-            if (bw == -1) {
-                return VRTD_RET_INTERNAL_ERROR;
-            }
-            bytes_written += bw;
+    /* FELIX fix: transfer the whole range in as few write()s as possible. The
+     * original loop wrote TRANSFER_STEP_SIZE (4 KB) per iteration -> thousands of
+     * syscalls + QDMA descriptors per buffer -> ~0.3 GB/s. A single large write()
+     * lets the QDMA MM driver build one scatter-gather DMA over all the pages.
+     * lseek() set the device offset; write() advances it, and this loop resumes on
+     * any short write, so we stay correct even if the driver caps a single transfer. */
+    uint64_t total_bytes = end_offset - effective_offset;
+    uint64_t transferred = 0;
+    while (transferred < total_bytes) {
+        uint64_t chunk = total_bytes - transferred;
+        if (chunk > TRANSFER_MAX_CHUNK) {
+            chunk = TRANSFER_MAX_CHUNK;
         }
+        ssize_t bw = write(buffer->qpair_fd,
+                           (uint8_t *) buffer->buf + effective_offset + transferred,
+                           chunk);
+        if (bw == -1) {
+            return VRTD_RET_INTERNAL_ERROR;
+        }
+        transferred += bw;
     }
 
     return VRTD_RET_OK;
@@ -244,17 +258,23 @@ enum vrtd_ret vrtd_buffer_sync_from_device(
         return VRTD_RET_INTERNAL_ERROR;
     }
 
-    for (uint64_t curr_offset = effective_offset; curr_offset < end_offset; curr_offset += TRANSFER_STEP_SIZE) {
-        ssize_t bytes_read = 0;
-        while (bytes_read < TRANSFER_STEP_SIZE) {
-            ssize_t br = read(buffer->qpair_fd,
-                              (uint8_t *) buffer->buf + curr_offset + bytes_read,
-                              TRANSFER_STEP_SIZE - bytes_read);
-            if (br == -1) {
-                return VRTD_RET_INTERNAL_ERROR;
-            }
-            bytes_read += br;
+    /* FELIX fix: read the whole range in as few read()s as possible (was 4 KB per
+     * iteration -> thousands of syscalls -> ~0.3 GB/s). One large read() lets the
+     * QDMA MM driver do a single scatter-gather DMA; the loop resumes on short reads. */
+    uint64_t total_bytes = end_offset - effective_offset;
+    uint64_t transferred = 0;
+    while (transferred < total_bytes) {
+        uint64_t chunk = total_bytes - transferred;
+        if (chunk > TRANSFER_MAX_CHUNK) {
+            chunk = TRANSFER_MAX_CHUNK;
         }
+        ssize_t br = read(buffer->qpair_fd,
+                          (uint8_t *) buffer->buf + effective_offset + transferred,
+                          chunk);
+        if (br == -1) {
+            return VRTD_RET_INTERNAL_ERROR;
+        }
+        transferred += br;
     }
 
     return VRTD_RET_OK;
