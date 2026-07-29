@@ -46,11 +46,13 @@ build_example() {
     # 1. HLS synth of each kernel
     ( cd "$ROOT/examples" && ./build_hls.sh "$dir" "${kernels[@]}" )
 
-    # 2. link kernels -> .vbin (one -k <component.xml> per kernel)
-    local kargs=()
+    # 2. link kernels -> .vbin. NOTE: -k takes MULTIPLE values (nargs="+"), so it
+    #    must be a single -k followed by every component.xml. Repeating -k per kernel
+    #    makes argparse keep only the LAST one -> "kernel type ... not found".
+    local kargs=( -k )
     local k
     for k in "${kernels[@]}"; do
-        kargs+=( -k "$exdir/hls/build_${k}.${DEVICE}/hls/impl/ip/component.xml" )
+        kargs+=( "$exdir/hls/build_${k}.${DEVICE}/hls/impl/ip/component.xml" )
     done
     V80PP_RESOURCE_DIR="$ROOT/linker/resources" python3 "$ROOT/linker/src/main.py" link \
         -c "$exdir/config.cfg" -p hw -o "$exdir/${vbin}.vbin" \
