@@ -47,7 +47,7 @@ update_compile_order -fileset sources_1
  ] [get_bd_intf_pins /ddr_noc_0/M00_INI]
 
   set_property -dict [ list \
-   CONFIG.CONNECTIONS {M00_INI {read_bw {500} write_bw {500}}} \
+   CONFIG.CONNECTIONS {M00_INI {read_bw {2500} write_bw {2500}}} \
    CONFIG.NOC_PARAMS {} \
    CONFIG.CATEGORY {pl} \
  ] [get_bd_intf_pins /ddr_noc_0/S00_AXI]
@@ -69,7 +69,7 @@ update_compile_order -fileset sources_1
  ] [get_bd_intf_pins /ddr_noc_1/M00_INI]
 
   set_property -dict [ list \
-   CONFIG.CONNECTIONS {M00_INI {read_bw {500} write_bw {500}}} \
+   CONFIG.CONNECTIONS {M00_INI {read_bw {2500} write_bw {2500}}} \
    CONFIG.NOC_PARAMS {} \
    CONFIG.CATEGORY {pl} \
  ] [get_bd_intf_pins /ddr_noc_1/S00_AXI]

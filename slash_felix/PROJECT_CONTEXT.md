@@ -44,6 +44,48 @@
   Kernel-swap demo can bypass AMI (`vrtd reset.c` → SBR-only). See memory `felix-slash-software-port-plan`.
 - Build order note below (§1) is historical; the shell + linker are already done.
 
+## 0b. Platform limits — READ before designing kernels (FELIX single-channel)
+
+**DDR is ONE physical channel.** FELIX wires exactly **1 DDRMC** to **1 DDR4 mini-DIMM**
+(DDR4-2666, 72-bit = 64+8 ECC, dual-rank). Silicon has 4 DDRMC blocks but only one has
+DRAM on the board. **Theoretical peak ≈ 21.3 GB/s; realistic ≈ 15–18 GB/s.** The other
+3 DDRMCs are dark (no board wiring). More memory bandwidth is *not* available on this
+board — only a faster DIMM (DDR4-3200 → 25.6) or a different board (more channels/HBM)
+would change it.
+
+**`DDR0`/`DDR1`/`DDR2`/`DDR3` are NOT 4 channels — they are up to 4 NoC access ports
+("doors") into the SAME single DDRMC.** All four lead to the same one DIMM and share the
+same ~21 GB/s. Do not confuse a DDR *port* (NoC path, `M0x_INI`) with a DDR*MC*
+(controller) or a channel.
+- **Only 2 doors are wired today:** the DDRMC has `NUM_NSI {2}` (`00_felix_cips_static_region.tcl`,
+  `axi_noc_mc_ddr4_0`) → `MC_0`=DDR0, `MC_1`=DDR1. **DDR2/DDR3 are unmapped → a kernel
+  mapped to them (`sp=...:DDR2/3`) segfaults the host** at buffer alloc. `01_aximm` (DDR0+DDR1)
+  works; `02_ddr_bw` (DDR0-3) crashed for this reason.
+- **The "4" is a template default, NOT a hardware cap.** `linker/resources/slash.tcl`
+  hardcodes 4 `ddr_noc` bridges and `bd_ports.py` sets `num_ddr=4`. You can open more
+  doors (raise `NUM_NSI`, route `M02/M03_INI`, edit the template) — but **it buys zero
+  bandwidth**: one channel, 21 GB/s, shared. **~2 wide (512-bit) ports already saturate it.**
+  More ports = concurrency only, and too many interleaved masters can *lower* effective BW
+  (DDR row thrashing). Rule of thumb: **1–2 wide, sequential-burst ports.**
+- One AXI `m_axi` port does **both** read and write (independent AXI R/W channels) — you do
+  not need separate read/write ports.
+
+**Kernel clock is capped at 333.33 MHz by software, not by timing.**
+`vrt/include/vrt/device.hpp:95 CLOCK_MAX_FREQ = 333333333`; `device.cpp:251-254` clamps any
+vbin requesting more (warns "exceeds maximum frequency 333333333"). Kernels are *implemented*
+at a 400 MHz base (`linker/src/emit/metadata/timing_freq.py base_freq_hz`) and the vbin may
+record 400, but **they RUN at ≤333 MHz**. Harmless for memory BW: 512-bit × 333 MHz =
+21.3 GB/s ≥ the DDR ceiling. **To raise:** ≤400 MHz — bump `CLOCK_MAX_FREQ` + rebuild/reinstall
+the `vrt` package (kernels already close 400); >400 MHz — also raise the linker `base_freq_hz`,
+ensure the RM closes timing, and note `clk_wizard_slash` VCO range may need a base rebuild.
+Only worth it for *compute*-bound kernels; irrelevant to DDR/QDMA bandwidth. Set
+`freqhz=333333333` in a kernel's `config.cfg` `[clock]` block to avoid the warning.
+
+**Base NoC QoS is placeholder-low (throttles bandwidth).** As shipped from the VEK280/SLASH
+port, the DDR controller is provisioned at only ~1.5 GB/s (`MC_0 {1000}`+`MC_1 {500}`) and the
+QDMA→DDR hop at 128 MB/s (`axi_noc_cips/S00_AXI M00_INI {128}`) — this caps QDMA at ~0.3 GB/s.
+Raising these + rebuilding the base PDI is required for real bandwidth (in progress).
+
 ## 1. The goal (user: Akshay)
 
 Port the AMD/Xilinx **SLASH** SmartNIC/accelerator shell from the Alveo V80

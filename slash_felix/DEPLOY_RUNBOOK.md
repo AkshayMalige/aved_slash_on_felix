@@ -346,6 +346,61 @@ V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
 **Run** (PF1/QDMA BDF): `./examples/01_aximm/build/01_aximm 01:00.1 examples/01_aximm/aximm_hw.vbin`
 → expect `Test passed` (verifies `out[i] == in[i]*3 + 2`).
 
+### Part 5c — Build the `02_ddr_bw` example → `.vbin`  (DDR bandwidth)
+
+Measures **sustained DDR read/write bandwidth** from the kernel side, isolated from
+PCIe. One 512-bit `mem_bw` kernel is instantiated **4×** (`config.cfg`) onto
+`DDR0..DDR3` — four masters into the single DDR4 channel, to saturate it. The host
+fills + pushes buffers once (untimed), then times **only** the concurrent 4-kernel
+run. Both configs set the kernel clock to **400 MHz** at link time via a `[clock]
+freqhz=400000000` block (200 MHz is the unset default — see CONCEPTS/notes). Same ⚠️
+rule: **redo the link whenever you redo Part 1.**
+
+```bash
+( cd examples && ./build_hls.sh 02_ddr_bw mem_bw )                    # HLS synth (vp1552)
+                                                                      # skip if kernel unchanged
+HLS=$(pwd)/examples/02_ddr_bw/hls
+V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
+  -c examples/02_ddr_bw/config.cfg -p hw \
+  -o examples/02_ddr_bw/ddr_bw_hw.vbin \
+  -k $HLS/build_mem_bw.xcvp1552-vsva3340-2MHP-e-S/hls/impl/ip/component.xml \
+  --vivado "$(which vivado)"
+( cd examples/02_ddr_bw && rm -rf build && cmake -B build -S . -G Ninja && cmake --build build )
+```
+**Check:** `ls examples/02_ddr_bw/ddr_bw_hw.vbin examples/02_ddr_bw/build/02_ddr_bw`
+**Run** (PF1/QDMA BDF): `sudo ./examples/02_ddr_bw/build/02_ddr_bw 01:00.1 examples/02_ddr_bw/ddr_bw_hw.vbin`
+→ prints aggregate **Read** / **Write** GB/s. Optional args: `[words_per_port] [iters]`
+(default `1048576` = 64 MB/port, `5` iters). DDR4-2666 ceiling ≈ 21.3 GB/s
+(~15–18 realistic). If both numbers are ~1–4 GB/s, the static-region NoC QoS
+(`read_bw/write_bw {250}`) is throttling → raise it and rebuild the base PDI.
+
+### Part 5d — Build the `03_qdma_bw` example → `.vbin`  (PCIe/QDMA bandwidth)
+
+Measures **host↔card DMA throughput**. Shares the same `mem_bw` kernel (1 instance on
+`DDR0`); the host sweeps transfer sizes and times `buffer.sync()` each direction.
+
+```bash
+( cd examples && ./build_hls.sh 03_qdma_bw mem_bw )                   # HLS synth (vp1552)
+                                                                      # skip if kernel unchanged
+HLS=$(pwd)/examples/03_qdma_bw/hls
+V80PP_RESOURCE_DIR=$(pwd)/linker/resources python3 linker/src/main.py link \
+  -c examples/03_qdma_bw/config.cfg -p hw \
+  -o examples/03_qdma_bw/qdma_bw_hw.vbin \
+  -k $HLS/build_mem_bw.xcvp1552-vsva3340-2MHP-e-S/hls/impl/ip/component.xml \
+  --vivado "$(which vivado)"
+( cd examples/03_qdma_bw && rm -rf build && cmake -B build -S . -G Ninja && cmake --build build )
+```
+**Check:** `ls examples/03_qdma_bw/qdma_bw_hw.vbin examples/03_qdma_bw/build/03_qdma_bw`
+**Run** (PF1/QDMA BDF): `sudo ./examples/03_qdma_bw/build/03_qdma_bw 01:00.1 examples/03_qdma_bw/qdma_bw_hw.vbin`
+→ prints best **H2D** / **D2H** GB/s per size (sweeps 1/4/16/64 MB; override with
+`[size_mb] [iters]`). Buffers live in card DDR, so both are bounded by
+`min(PCIe Gen5x8, DDR)` — expect to approach the DDR ceiling, not raw PCIe.
+
+> **After loading either vbin**, confirm the clock actually took:
+> `v80-smi query -d 0000:01:00` should report `Clock frequency: 400000000`. If it
+> still says `200000000`, the kernel didn't close 400 MHz and the linker capped it
+> (see the WNS cap in `linker/src/emit/metadata/timing_freq.py`).
+
 ---
 
 ## Part 5b — Pre-flight check  ⚠️ run this before every hardware session
@@ -539,6 +594,31 @@ ami_tool reload -d <PF0-BDF>                            # or power-cycle
 > via JTAG). If a **secondary/golden** partition exists, flash `-t secondary` first
 > and test it before primary. Never power-cycle mid-flash. Verify exact flag names
 > with `ami_tool cfgmem_fpt -h`.
+
+---
+
+## Platform limits — know before designing/benchmarking kernels
+
+FELIX is a **single DDR channel** board. Two hard facts bite every kernel design
+(full detail in `PROJECT_CONTEXT.md §0b`):
+
+**DDR ports (`DDR0..DDR3`) are NoC doors into ONE DDRMC, not 4 channels.**
+- One DDRMC ↔ one DDR4-2666 mini-DIMM. Peak ≈ **21.3 GB/s** (~15–18 realistic), shared.
+- **Only DDR0 + DDR1 are wired** (`NUM_NSI {2}` on `axi_noc_mc_ddr4_0`). Mapping a kernel to
+  **`DDR2`/`DDR3` segfaults the host** — those doors aren't opened in the base.
+- The "4" is a linker/template default (`slash.tcl`, `num_ddr=4`), **not** a hardware cap; you
+  can open more doors, but it adds **zero bandwidth** (one channel, shared). **1–2 wide
+  (512-bit) sequential-burst ports saturate it.** One `m_axi` port already does read *and* write.
+
+**Kernel clock is capped at 333.33 MHz in software** (`vrt` `CLOCK_MAX_FREQ = 333333333`,
+`device.hpp:95`). Kernels build at a 400 MHz base but **run ≤333 MHz** — you'll see the warning
+`Clock frequency 400000000 exceeds maximum frequency 333333333`. Harmless (512b×333 = 21.3 GB/s
+≥ DDR ceiling). To raise ≤400: edit `CLOCK_MAX_FREQ` + rebuild/reinstall the `vrt` package.
+Above 400 also needs the linker `base_freq_hz` + timing closure + possibly a `clk_wizard_slash`
+rebuild. Set `freqhz=333333333` in a `config.cfg` `[clock]` block to silence the warning.
+
+> Base NoC QoS ships placeholder-low (DDR ~1.5 GB/s, QDMA hop 128 MB/s) → caps QDMA at
+> ~0.3 GB/s. Raising it + rebuilding the base PDI (Part 1) is required for real bandwidth.
 
 ---
 

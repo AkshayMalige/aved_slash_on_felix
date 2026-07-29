@@ -993,11 +993,11 @@ proc create_hier_cell_noc { parentCell nameHier } {
 
 
   set_property -dict [ list \
-   CONFIG.CONNECTIONS {MC_0 {read_bw {1000} write_bw {1000} initial_boot {false}}} \
+   CONFIG.CONNECTIONS {MC_0 {read_bw {5000} write_bw {5000} initial_boot {false}}} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_mc_ddr4_0/S00_INI]
 
   set_property -dict [ list \
-   CONFIG.CONNECTIONS {MC_1 {read_bw {500} write_bw {500} read_avg_burst {4} write_avg_burst {4} initial_boot {true}}} \
+   CONFIG.CONNECTIONS {MC_1 {read_bw {5000} write_bw {5000} read_avg_burst {4} write_avg_burst {4} initial_boot {true}}} \
  ] [get_bd_intf_pins /static_region/noc/axi_noc_mc_ddr4_0/S01_INI]
 
   # Create instance: axi_noc_cips, and set properties
