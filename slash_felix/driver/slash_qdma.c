@@ -1577,8 +1577,10 @@ rollback:
  *     (required for poll-mode operation per the reference driver).
  *   - qconf.cmpl_stat_en = 1: enable completion status generation
  *     (required for poll-mode operation per the reference driver).
- *   - qconf.aperture_size = 4096: page-granularity (4 KB) for descriptor
- *     addressing.  Each descriptor addresses one page-sized chunk.
+ *   - qconf.aperture_size = 0: linear (non-keyhole) addressing.  MUST be 0
+ *     for card-DDR transfers; a non-zero aperture wraps the endpoint address
+ *     within an aperture-sized window and caps descriptor length, corrupting
+ *     and throttling any transfer larger than the aperture.
  *   - qconf.desc_rng_sz_idx: CSR table index (0-15) selecting the
  *     descriptor ring depth.  Not a raw descriptor count — the actual
  *     count is looked up from the global CSR ring-size table.
@@ -1622,7 +1624,18 @@ static int slash_qdma_ioctl_qpair_add_q(struct miscdevice *misc,
     qconf.cmpl_status_pend_chk = 1;                 /* Check pending completions (poll-mode req) */
     qconf.cmpl_stat_en = 1;                         /* Enable completion status generation */
 
-    qconf.aperture_size = 4096;                     /* Page-granularity descriptor addressing */
+    /* FELIX fix: aperture_size MUST be 0 for linear card-DDR transfers.
+     * A non-zero aperture enables QDMA "keyhole" mode, which WRAPS the device
+     * endpoint address within an aperture-sized window (see qdma_descq.c:
+     * ep_addr wraps to req->ep_addr every `aperture` bytes) AND caps every
+     * descriptor's length at `aperture`. With aperture=4096 any transfer >4KB
+     * lands entirely inside a single 4KB DDR window (data corruption) and is
+     * shattered into 4KB descriptors (~4 GB/s ceiling). The original upstream
+     * code only ever wrote 4KB per write(), so the bug was masked; once the
+     * sync loop was widened to 128MB chunks it corrupted all large transfers.
+     * aperture_size=0 => keyhole off, linear ep_addr, descriptors up to
+     * QDMA_DESC_BLEN_MAX (256MB on CPM5). REPORT TO SLASH TEAM. */
+    qconf.aperture_size = 0;                        /* 0 = linear (no keyhole); required for correct >4KB DMA */
 
     /* --- Per-direction ring configuration --- */
     switch (qtype) {

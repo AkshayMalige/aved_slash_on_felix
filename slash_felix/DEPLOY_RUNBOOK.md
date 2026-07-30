@@ -617,8 +617,11 @@ FELIX is a **single DDR channel** board. Two hard facts bite every kernel design
 Above 400 also needs the linker `base_freq_hz` + timing closure + possibly a `clk_wizard_slash`
 rebuild. Set `freqhz=333333333` in a `config.cfg` `[clock]` block to silence the warning.
 
-> Base NoC QoS ships placeholder-low (DDR ~1.5 GB/s, QDMA hop 128 MB/s) → caps QDMA at
-> ~0.3 GB/s. Raising it + rebuilding the base PDI (Part 1) is required for real bandwidth.
+> Base NoC QoS ships placeholder-low (DDR ~1.5 GB/s, QDMA hop 128 MB/s) — raised in the
+> base PDI (Part 1). NoC QoS is a *floor*, not a cap (a DDR kernel write hits 23.8 GB/s
+> over a 5 GB/s reservation), so it was **not** the QDMA limiter. The real host↔card
+> bandwidth fix was the `buffer.c` + `slash_qdma.c aperture_size` matched pair — see the
+> "QDMA host↔card bandwidth" appendix below (0.3 → ~4.3 GB/s, correct data).
 
 ---
 
@@ -704,25 +707,43 @@ the fix; vrtd log shows a **second** `Buffer opened` at a new region address
 `vrt/vrtd/src/allocator.h`). Total across many ≤512 MB buffers reaches the full
 16 GB. One >512 MB contiguous buffer would need a daemon change to span regions.
 
-### Second upstream bug — `vrt` QDMA sync does 4 KB transfers (REPORT TOO)
+### QDMA host↔card bandwidth — felix perf change (NOT an upstream bug)
 
-**Found + fixed on FELIX 2026-07-29. Also a shared SLASH/`vrt` bug.**
+**Investigated + resolved on FELIX 2026-07-29..30. This is a deliberate felix
+divergence from the reference `buffer.sync()` path — do NOT report it as a SLASH bug.**
 
-**Symptom:** host↔card DMA (`vrt::Buffer::sync`) tops out at **~0.3 GB/s** regardless
-of buffer size — nothing to do with NoC QoS (a DDR *kernel* write hits 23.8 GB/s) or
-the link.
+**The reference (`/home/synthara/VersalPrjs/felix/felix-xpfm-pcie/SLASH`) ships a
+self-consistent SLOW pairing:** `buffer.c` writes in **4 KB `TRANSFER_STEP_SIZE`**
+chunks *and* `driver/slash_qdma.c` sets **`qconf.aperture_size = 4096`** (QDMA
+"keyhole" mode). Keyhole confines each write's device address to one aperture-sized
+(4 KB) window, so 4 KB writes land correctly — **correct but ~0.3–1 GB/s**
+(one syscall + QDMA descriptor per 4 KB; a 64 MB transfer = 16,384 syscalls).
 
-**Root cause:** `vrt/vrtd/libvrtd/src/buffer.c`, `vrtd_buffer_sync_to_device` /
-`vrtd_buffer_sync_from_device` transferred the buffer in **`TRANSFER_STEP_SIZE = 4 KB`
-chunks** — one `write()`/`read()` syscall + QDMA descriptor per 4 KB. A 64 MB transfer
-= **16,384** syscalls, so per-transfer overhead dominates and the link sits mostly idle.
+**The trap (a self-inflicted regression):** the felix port changed `buffer.c` to
+write the **whole range in ≤128 MB chunks** (to go faster) but *left*
+`aperture_size = 4096`. A 128 MB write into a 4 KB keyhole window **corrupts data** —
+every byte past the first 4 KB wraps back over the start. Proven: `01_aximm` with a
+4 MB buffer prints **`Test failed (accuracy)`**. The "3.8 GB/s" seen in this broken
+state was moving PCIe bytes into a 4 KB DDR window — fast but wrong.
 
-**Fix:** replace the 4-KB-step loop with a single `write()`/`read()` of the **whole
-range** (keep a resume loop for short transfers); the QDMA MM driver then builds one
-scatter-gather DMA over all the (hugepage-backed) pages. Host-lib rebuild only.
+**The fix (matched pair — both halves required):**
+1. `buffer.c`: whole-range `write()`/`read()` in ≤128 MB chunks (keep a resume loop).
+2. `driver/slash_qdma.c`: **`qconf.aperture_size = 0`** → keyhole OFF, linear DMA,
+   descriptors up to `QDMA_DESC_BLEN_MAX` (256 MB on CPM5). `aperture=0` is strictly
+   more general than `4096` (correct for *any* transfer size).
+   - Driver change needs a **dkms rebuild + reboot** (the module can't hot-swap — stale
+     QDMA queues hold it): `sudo bash scripts/rebuild_qdma_driver.sh`, reboot, then
+     `bash scripts/verify_qdma.sh`.
 
-**Verified on FELIX:** `03_qdma_bw` went **0.30 → ~3.4 GB/s** (~11×). Remaining gap to
-the link is (a) the smallest QDMA ring (`VRTD_QDMA_RING_SZ_IDX = 0`) and single
-synchronous queue, and (b) the PCIe link training at **Gen3 ×8 (~7 GB/s)** instead of
-Gen5 (`LnkSta: 8GT/s downgraded` — a signal-integrity/slot issue, not software). So
-QDMA is bounded ~7 GB/s here until the Gen5 link is restored.
+**Verified on FELIX:** `01_aximm` 4 MB → **`Test passed`**; `03_qdma_bw` → **~4.3 GB/s**
+(~5–14× over the reference pairing), correct data.
+
+**Why it plateaus at ~4.3 GB/s (and why we stop here):** the descriptors are still
+built one-per-host-page. The remaining ceiling is the **single synchronous queue**
+`buffer.sync()` path itself — *the same path the reference/V80 uses.* We already beat
+the reference on it. Pushing higher (SGL coalescing to merge contiguous pages,
+reserving 2 MB hugepages, or multiple parallel queues + threads) is **custom work the
+reference never did** — only pursue it if host↔card load time actually bottlenecks a
+workload. On-card compute uses the **16–23 GB/s DDR** path (kernel AXI master), not QDMA.
+Note: `VRTD_QDMA_RING_SZ_IDX = 0` is *not* small — CSR index 0 = the 2048-deep ring;
+ring depth is not the limiter.

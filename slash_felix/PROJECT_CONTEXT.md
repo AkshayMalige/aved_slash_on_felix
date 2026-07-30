@@ -81,10 +81,21 @@ ensure the RM closes timing, and note `clk_wizard_slash` VCO range may need a ba
 Only worth it for *compute*-bound kernels; irrelevant to DDR/QDMA bandwidth. Set
 `freqhz=333333333` in a kernel's `config.cfg` `[clock]` block to avoid the warning.
 
-**Base NoC QoS is placeholder-low (throttles bandwidth).** As shipped from the VEK280/SLASH
-port, the DDR controller is provisioned at only ~1.5 GB/s (`MC_0 {1000}`+`MC_1 {500}`) and the
-QDMA→DDR hop at 128 MB/s (`axi_noc_cips/S00_AXI M00_INI {128}`) — this caps QDMA at ~0.3 GB/s.
-Raising these + rebuilding the base PDI is required for real bandwidth (in progress).
+**Base NoC QoS is placeholder-low.** As shipped from the VEK280/SLASH port, the DDR
+controller was provisioned at only ~1.5 GB/s (`MC_0 {1000}`+`MC_1 {500}`) and the QDMA→DDR
+hop at 128 MB/s — raised in the base PDI. But NoC QoS is a *floor, not a cap* (a DDR kernel
+write hits 23.8 GB/s over a 5 GB/s reservation), so it was **not** the QDMA limiter.
+
+**QDMA host↔card = ~4.3 GB/s, correct (SOLVED 2026-07-30) — a felix perf change, NOT an
+upstream bug.** The reference SLASH pairs `{buffer.c 4 KB writes, driver aperture_size 4096
+(keyhole)}` = self-consistent but ~0.3–1 GB/s. The port changed `buffer.c` to ≤128 MB writes
+but left `aperture=4096` → 128 MB wrapped into a 4 KB keyhole window = **silent data
+corruption** (`01_aximm` 4 MB → `Test failed`). Fix = matched pair: keep big writes AND set
+`driver/slash_qdma.c` **`aperture_size = 0`** (linear DMA). Verified: `Test passed`, ~4.3 GB/s.
+PCIe link is now genuine **Gen5 x8 32GT/s** (earlier "Gen3 downgraded" was a cable issue, fixed).
+The ~4.3 ceiling is the single-queue `buffer.sync()` path (same path V80 uses) — going further
+(SGL page-coalescing + hugepages, or multi-queue) is custom, off the reference path; don't
+unless load time actually bottlenecks. See DEPLOY_RUNBOOK "QDMA host↔card bandwidth" appendix.
 
 ## 1. The goal (user: Akshay)
 
