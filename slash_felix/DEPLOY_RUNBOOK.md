@@ -163,3 +163,19 @@ The `.vbin` (gzip tar) contains:
 | `KeyError` in `generate_util_report` | hardcoded top/cell name; partial PDI already written, only metadata failed |
 | boundary / partition-pin mismatch at `write_device_image` | regenerate `slash_base.bd` + `abs_shell_slash.dcp` from the *same* design |
 | `[Mig 66-441]` DDR pin triplet (hw build) | DDR rank/config — `MC_RANK 2` at creation (dfx_build 00 script) |
+
+## Clean build sequence
+
+```bash
+sudo bash scripts/uninstall_sw.sh   #warm reboot might be needed
+./build_all.sh hw
+./build_all.sh fw
+./build_all.sh sw
+sudo bash scripts/install_sw.sh
+./scripts/make_sd_image.sh dfx_build/amc_pdi/build/felix_slash_amc.pdi felix_sd.img
+./scripts/build_examples.sh
+
+#flash felix_sd.img to SD (Etcher/dd) and load it to the board and cold power cycle or
+sudo sync && sudo ipmitool chassis power cycle
+./examples/04_test_felix/build/04_test_felix 0000:41:00 examples/04_test_felix/test_felix_hw.vbin
+```
