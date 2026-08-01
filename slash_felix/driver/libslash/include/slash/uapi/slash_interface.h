@@ -169,6 +169,24 @@ struct slash_qdma_info {
  * 0–15), not byte or descriptor counts.  Each index selects a
  * pre-configured descriptor-ring depth from the global CSR ring-size
  * table (e.g. index 0 → 2049 descriptors, index 15 → 16385).
+ *
+ * \@aperture_size selects the endpoint addressing mode for this queue:
+ *   - 0 — linear addressing.  The endpoint address advances with the
+ *     data, and descriptors may be up to QDMA_DESC_BLEN_MAX long.  This
+ *     is what a card-DDR buffer needs; any non-zero value silently wraps
+ *     a large transfer back into one aperture-sized window.
+ *   - non-zero (power of two) — "keyhole" addressing.  The endpoint
+ *     address wraps back to the start of the transfer every
+ *     \@aperture_size bytes, and every descriptor is capped at that
+ *     length.  This is required when the target is a fixed-address FIFO
+ *     rather than a memory range — notably the PMC Slave Boot Interface
+ *     at 0x102100000, which the DFX design writer streams partial PDIs
+ *     into.  Streaming to the SBI with linear addressing walks the
+ *     endpoint address off the FIFO into unmapped PMC space and the
+ *     transfer never completes.
+ *
+ * The field is appended at the end of the struct; callers built against
+ * an older header simply get 0 (linear), preserving previous behaviour.
  */
 struct slash_qdma_qpair_add {
     __u32 size;          /**< Struct size for ABI versioning. */
@@ -183,6 +201,9 @@ struct slash_qdma_qpair_add {
 
     /* Kernel to userspace */
     __u32 qid;           /**< [out] Kernel-assigned queue pair ID. */
+
+    /* Userspace to kernel (appended — see the note above) */
+    __u32 aperture_size; /**< [in]  0 = linear; non-zero = keyhole window in bytes. */
 };
 
 /**
@@ -231,8 +252,34 @@ struct slash_qdma_qpair_fd_request {
 /** Query QDMA subsystem capabilities. */
 #define SLASH_QDMA_IOCTL_INFO          _IOWR('v', 0x50, struct slash_qdma_info)
 
+/**
+ * Frozen v1 layout of slash_qdma_qpair_add, used ONLY to derive the ioctl
+ * number below.  Do not use it for anything else.
+ *
+ * _IOWR() encodes sizeof(type) into the command number, so deriving the
+ * number from the live struct would change the ioctl every time a field is
+ * appended — and a driver and a libslash built from different revisions
+ * would then disagree and fail with ENOTTY ("Inappropriate ioctl for
+ * device") rather than degrading gracefully.  That defeats the whole point
+ * of the \@size field, which exists so the struct CAN grow.
+ *
+ * So the number is pinned to the original 7-field layout forever, and
+ * version negotiation happens exclusively through \@size: the driver reads
+ * \@size first and copies only that many bytes, zero-filling the rest.
+ * Never change this struct.  Append to slash_qdma_qpair_add instead.
+ */
+struct slash_qdma_qpair_add_v1 {
+    __u32 size;
+    __u32 mode;
+    __u32 dir_mask;
+    __u32 h2c_ring_sz;
+    __u32 c2h_ring_sz;
+    __u32 cmpt_ring_sz;
+    __u32 qid;
+};
+
 /** Allocate a new queue pair; returns assigned qid. */
-#define SLASH_QDMA_IOCTL_QPAIR_ADD     _IOWR('v', 0x51, struct slash_qdma_qpair_add)
+#define SLASH_QDMA_IOCTL_QPAIR_ADD     _IOWR('v', 0x51, struct slash_qdma_qpair_add_v1)
 
 /** Start, stop, or delete an existing queue pair. */
 #define SLASH_QDMA_IOCTL_Q_OP          _IOWR('v', 0x52, struct slash_qdma_qpair_op)

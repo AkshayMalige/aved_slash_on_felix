@@ -54,6 +54,7 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/kref.h>
+#include <linux/log2.h>
 #include <linux/miscdevice.h>
 #include <linux/minmax.h>
 #include <linux/mutex.h>
@@ -1444,6 +1445,14 @@ static int slash_qdma_ioctl_qpair_add_w(struct miscdevice *misc,
     if (req.h2c_ring_sz >= 16 || req.c2h_ring_sz >= 16 || req.cmpt_ring_sz >= 16)
         return -EINVAL;
 
+    /*
+     * Keyhole aperture: 0 (linear) or a power of two of at least one page.
+     * A non-power-of-two would make libqdma's wrap arithmetic meaningless.
+     */
+    if (req.aperture_size &&
+        (req.aperture_size < PAGE_SIZE || !is_power_of_2(req.aperture_size)))
+        return -EINVAL;
+
     mutex_lock(&qdma_dev->lock);
     if (qdma_dev->hw_shutdown || !qdma_dev->have_qdma_handle) {
         mutex_unlock(&qdma_dev->lock);
@@ -1577,10 +1586,12 @@ rollback:
  *     (required for poll-mode operation per the reference driver).
  *   - qconf.cmpl_stat_en = 1: enable completion status generation
  *     (required for poll-mode operation per the reference driver).
- *   - qconf.aperture_size = 0: linear (non-keyhole) addressing.  MUST be 0
- *     for card-DDR transfers; a non-zero aperture wraps the endpoint address
- *     within an aperture-sized window and caps descriptor length, corrupting
- *     and throttling any transfer larger than the aperture.
+ *   - qconf.aperture_size: taken from the caller (req->aperture_size).  0 is
+ *     linear (non-keyhole) addressing, required for card-DDR transfers; a
+ *     non-zero aperture wraps the endpoint address within an aperture-sized
+ *     window and caps descriptor length, which is required for fixed-address
+ *     FIFO targets such as the PMC SBI but corrupts and throttles any memory
+ *     transfer larger than the aperture.  See the inline note below.
  *   - qconf.desc_rng_sz_idx: CSR table index (0-15) selecting the
  *     descriptor ring depth.  Not a raw descriptor count — the actual
  *     count is looked up from the global CSR ring-size table.
@@ -1624,18 +1635,32 @@ static int slash_qdma_ioctl_qpair_add_q(struct miscdevice *misc,
     qconf.cmpl_status_pend_chk = 1;                 /* Check pending completions (poll-mode req) */
     qconf.cmpl_stat_en = 1;                         /* Enable completion status generation */
 
-    /* FELIX fix: aperture_size MUST be 0 for linear card-DDR transfers.
+    /* FELIX fix: the aperture is PER QUEUE — it depends on what the queue
+     * targets, so the caller chooses it and we must not hardcode either value.
+     *
      * A non-zero aperture enables QDMA "keyhole" mode, which WRAPS the device
      * endpoint address within an aperture-sized window (see qdma_descq.c:
      * ep_addr wraps to req->ep_addr every `aperture` bytes) AND caps every
-     * descriptor's length at `aperture`. With aperture=4096 any transfer >4KB
-     * lands entirely inside a single 4KB DDR window (data corruption) and is
-     * shattered into 4KB descriptors (~4 GB/s ceiling). The original upstream
-     * code only ever wrote 4KB per write(), so the bug was masked; once the
-     * sync loop was widened to 128MB chunks it corrupted all large transfers.
-     * aperture_size=0 => keyhole off, linear ep_addr, descriptors up to
-     * QDMA_DESC_BLEN_MAX (256MB on CPM5). REPORT TO SLASH TEAM. */
-    qconf.aperture_size = 0;                        /* 0 = linear (no keyhole); required for correct >4KB DMA */
+     * descriptor's length at `aperture`.
+     *
+     *   - card DDR (data buffers)  -> aperture 0 (linear).  With aperture=4096
+     *     any transfer >4KB lands entirely inside a single 4KB DDR window (data
+     *     corruption) and is shattered into 4KB descriptors (~4 GB/s ceiling).
+     *     Upstream only ever wrote 4KB per write(), so its global 4096 masked
+     *     this; once the sync loop widened to 128MB chunks it corrupted every
+     *     large transfer.
+     *   - PMC Slave Boot Interface at 0x102100000 (the DFX design writer)
+     *     -> aperture 4096 (keyhole).  The SBI is a fixed-address FIFO, not a
+     *     memory range: linear addressing walks ep_addr off the FIFO into
+     *     unmapped PMC space, the transfer never completes, and write() fails
+     *     with EIO after the 10s timeout having moved 0 bytes — leaving the
+     *     partition holding whatever RM the base PDI loaded.
+     *
+     * Making this global in either direction breaks the other path. Callers
+     * built against the older header send a shorter struct, which the ioctl
+     * wrapper zero-fills => 0 => linear, the previous behaviour.
+     * REPORT TO SLASH TEAM. */
+    qconf.aperture_size = req->aperture_size;
 
     /* --- Per-direction ring configuration --- */
     switch (qtype) {

@@ -119,6 +119,22 @@
  */
 #define VRTD_DESIGN_WRITER_SEEK_ADDR 0x102100000ull
 
+/*
+ * Keyhole aperture for the design-writer queue.
+ *
+ * SEEK_ADDR above is the PMC Slave Boot Interface — a fixed-address FIFO, not
+ * a memory range.  The whole PDI must be pushed at that one address, so the
+ * queue needs QDMA keyhole mode, which wraps the endpoint address back every
+ * aperture_size bytes.  With a linear (aperture 0) queue the endpoint address
+ * advances with the data, walks off the FIFO into unmapped PMC space, and the
+ * transfer never completes: write() fails EIO after the driver's 10s timeout
+ * having moved 0 bytes, and the DFX partition silently keeps whatever RM the
+ * base PDI loaded.
+ *
+ * Data buffers (buffer.c) must NOT use a keyhole — see slash_interface.h.
+ */
+#define VRTD_DESIGN_WRITER_APERTURE 4096u
+
 /* Maximum bitstream size accepted by the design writer (1 GiB). */
 #define VRTD_DESIGN_WRITER_MAX_BYTES (1ull * 1024 * 1024 * 1024) // 1 GiB
 
@@ -566,6 +582,7 @@ static int design_writer_open_qpair(struct design_writer *writer)
     qpair.h2c_ring_sz = VRTD_QDMA_RING_SZ_IDX;
     qpair.c2h_ring_sz = VRTD_QDMA_RING_SZ_IDX;
     qpair.cmpt_ring_sz = VRTD_QDMA_RING_SZ_IDX;
+    qpair.aperture_size = VRTD_DESIGN_WRITER_APERTURE;  /* PMC SBI is a FIFO: keyhole, not linear */
 
     int ret = slash_qdma_qpair_add(writer->qdma, &qpair);
     PROPAGATE_ERROR_STDC_LOG(ret, LOG_ERR, "Failed to add design writer QDMA qpair");

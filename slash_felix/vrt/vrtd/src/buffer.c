@@ -185,6 +185,11 @@ static int buffer_init(struct buffer *buf,
     }
     qpair.dir_mask = dir_mask;
     qpair.size = sizeof(qpair);
+    /* Card DDR is a memory range, so the endpoint address must advance with
+     * the data.  A non-zero keyhole aperture here wraps every transfer larger
+     * than the aperture back into one window (silent corruption) and caps
+     * descriptor length.  Only the PMC SBI FIFO wants a keyhole. */
+    qpair.aperture_size = 0;
 
     if (slash_qdma_qpair_add(qdma, &qpair) != 0) {
         LOG(LOG_ERR, "Failed to add buffer qpair: %m");
@@ -315,6 +320,7 @@ struct buffer *buffer_create_raw(struct slash_qdma *qdma,
     qpair.cmpt_ring_sz = VRTD_QDMA_RING_SZ_IDX;
     qpair.dir_mask = dir_mask;
     qpair.size = sizeof(qpair);
+    qpair.aperture_size = 0;   /* memory range, not a FIFO -- linear addressing */
 
     if (slash_qdma_qpair_add(qdma, &qpair) != 0) {
         LOG(LOG_ERR, "buffer_create_raw: failed to add qpair: %m");
