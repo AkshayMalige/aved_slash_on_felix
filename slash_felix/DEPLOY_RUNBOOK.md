@@ -105,7 +105,7 @@ python3 linker/src/main.py link \
 ```
 
 
-04 test_felix example should run a full test and print something like :
+Example `04_test_felix`  should run a full test (ddr, qdma bandwidth, data check) and print something like :
 
 ![alt text](image.png)
 
