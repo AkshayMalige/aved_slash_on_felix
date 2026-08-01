@@ -106,7 +106,9 @@ python3 linker/src/main.py link \
 
 
 Example `04_test_felix`  should run a full test (ddr, qdma bandwidth, data check) and print something like :
-
+```bash
+./examples/04_test_felix/build/04_test_felix 0000:41:00 ./examples/04_test_felix/test_felix_hw.vbin
+```
 ![alt text](image.png)
 
 
