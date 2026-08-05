@@ -105,9 +105,13 @@ int main(int argc, char* argv[]) {
         std::cout << "  Write  (" << NP << " ports): " << std::setprecision(2) << std::setw(7) << wr.first
                   << " GB/s   (" << std::setprecision(3) << wr.second << " ms)\n";
         std::cout << "==================================================================\n";
-        std::cout << "  DDR4-2666 single-channel theoretical peak ~21.3 GB/s (~15-18 realistic).\n";
-        std::cout << "  If both numbers are ~1-4 GB/s, the static-region NoC QoS\n";
-        std::cout << "  (read_bw/write_bw {250}) is throttling -> raise it and rebuild the base PDI.\n\n";
+        std::cout << "  DDR4-2666 single channel: 21.3 GB/s peak (72 bits = 64 data + 8 ECC).\n";
+        std::cout << "  Measured ceilings on this platform: write 13.48, read 13.74 GB/s (2 ports).\n";
+        std::cout << "  All DDR traffic -- both kernels AND QDMA -- shares ONE ~13.5 GB/s door into\n";
+        std::cout << "  the DDRMC, so a second port raises reads (8.39 -> 13.74) but not writes.\n";
+        std::cout << "  A low number here is almost always the kernel clock, not the NoC: check it\n";
+        std::cout << "  with `v80-smi debug clockwiz -d <bdf> --get --region user`. One 512-bit port\n";
+        std::cout << "  at 100 MHz is 6.4 GB/s and nothing else matters until that is raised.\n\n";
 
         device.cleanup();
     } catch (const std::exception& e) {

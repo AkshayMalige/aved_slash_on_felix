@@ -247,11 +247,25 @@ Device::Device(const std::string& bdf, const std::string& vrtbinPath, bool progr
             sleep(1); // wait for device to be ready after programming before accessing BAR
 
         }
-        if (vrtdDevice.has_value()) {
+        /* FELIX fix: program the clock for EVERY freqhz, not only for one above the cap.
+         * Upstream has no else branch here, so a config.cfg asking for anything <=
+         * CLOCK_MAX_FREQ programs nothing at all and the fabric silently keeps whatever
+         * rate the MMCM was last left at -- which survives partial reconfiguration and
+         * every program run, and only resets on a power cycle. The practical effect is
+         * that `[clock] freqhz=` looks like it sets the kernel clock, does not, and gives
+         * no warning: benchmarks then vary between sessions depending on what touched the
+         * board last (measured 6.40 GB/s at 100 MHz vs 13.48 GB/s at 250 MHz on one
+         * 512-bit port). freqhz is a load-time MMCM setting shipped in the vbin, not a
+         * synthesis constraint -- the RM is routed against the static clk_wizard_0 -- so
+         * honouring it here is the whole of the fix. clockFreq is 0 when system_map.xml
+         * carries no <ClockFrequency>; never program 0 Hz. */
+        if (vrtdDevice.has_value() && clockFreq > 0) {
             if (clockFreq > CLOCK_MAX_FREQ) {
                 utils::Logger::log(utils::LogLevel::WARN, __PRETTY_FUNCTION__,
                            "Clock frequency {} exceeds maximum frequency {}", clockFreq, CLOCK_MAX_FREQ);
                 vrtdDevice->setUserClockRate(static_cast<uint32_t>(CLOCK_MAX_FREQ));
+            } else {
+                vrtdDevice->setUserClockRate(static_cast<uint32_t>(clockFreq));
             }
         }
     } else if (platform == Platform::EMULATION) {
