@@ -123,6 +123,32 @@ create_pblock pblock_slash
 add_cells_to_pblock [get_pblocks pblock_slash] [get_cells -quiet [list felix_cips_i/slash]]
 resize_pblock [get_pblocks pblock_slash] -add {CLOCKREGION_X2Y5:CLOCKREGION_X9Y5}
 resize_pblock [get_pblocks pblock_slash] -add {CLOCKREGION_X1Y6:CLOCKREGION_X9Y7}
+# ---- PHASE B (2026-08-06): the right side of SLR0.
+#      Phase A was verified on the card first -- 13 passed / 0 failed, 250.0 MHz,
+#      DDR write 13.48/13.48 and read 8.39/13.73 GB/s, i.e. identical to the
+#      pre-refloorplan baseline. Only after that was this added.
+#
+#      NOT the single rectangle X4Y1:X9Y4 originally planned: pblock_serviclayer
+#      occupies X3..X5 of rows Y1-Y2 (it had to move off column X1 -- BUFG_PS
+#      rule above), so Phase B routes around it as two ranges. Neither touches
+#      column X1, so both PS9s keep their BUFG_PS sites.
+#
+#      Resulting slash budget: 154,672 SLICE (70.5%), ~5,312 DSP58 (71.9%),
+#      32 NMU512. NMU accounting after this change:
+#        static  = X1 rows Y1-Y4 (7) + X3 rows Y3-Y4 (3) = 10   (uses 4)
+#        service = X3,X5 rows Y1-Y2                      =  8   (uses 6)
+#        slash   = SLR1 (22) + X5 Y3-Y4 (3) + X7 Y1-Y4 (7) = 32
+#
+#      COST, measured: a bigger RP means a bigger partial bitstream. Phase A
+#      already took PDI programming from 1588 ms to 3631 ms; expect ~5-6 s here.
+#      Irrelevant if you load a kernel once and run, but it is a real penalty if
+#      kernels are swapped often.
+#
+#      RISK: the RP now spans the SLR cut, so kernel logic can cross it. Watch
+#      per-kernel SLL usage and timing closure in report_utilization_*.txt.
+#      To fall back to Phase A, delete just these two lines and rerun run_impl.
+resize_pblock [get_pblocks pblock_slash] -add {CLOCKREGION_X6Y1:CLOCKREGION_X9Y2}
+resize_pblock [get_pblocks pblock_slash] -add {CLOCKREGION_X4Y3:CLOCKREGION_X9Y4}
 set_property SNAPPING_MODE ON [get_pblocks pblock_slash]
 set_property IS_SOFT FALSE [get_pblocks pblock_slash]
 
