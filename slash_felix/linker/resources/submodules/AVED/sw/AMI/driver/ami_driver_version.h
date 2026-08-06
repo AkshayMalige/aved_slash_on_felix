@@ -10,8 +10,8 @@
 #define GIT_TAG_VER_PATCH         (0)
 #define GIT_TAG_VER_DEV_COMMITS   (0)
 
-#define GIT_HASH                  "299b46039ae349aad471215d2f794922914ec34a"
-#define GIT_DATE                  "20260801"
+#define GIT_HASH                  "196539f4944c80f044aa3785b93bacb0b141f6bb"
+#define GIT_DATE                  "20260805"
 #define GIT_BRANCH                ""
 #define GIT_STATUS                (0)
 

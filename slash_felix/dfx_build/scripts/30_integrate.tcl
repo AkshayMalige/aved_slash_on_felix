@@ -14,12 +14,23 @@ foreach p {M04_INI_0 M05_INI_0 S00_INI_1 S00_INI_3 S00_INI_4 S00_INI_5 S00_INI_6
 
 # ---- expose noc INI boundary pins up to static_region boundary ----
 #   S00_INI_0..S03_INI_0 = slash kernel->DDR data
-#   S12_INI_0..S19_INI_0 = service_layer SL2NOC (kernel data->DDR)
+#   S12_INI_0            = service_layer SL2NOC_0 (kernel data->DDR)
 #   S20_INI_0..S23_INI_0 = service_layer M_VIRT
 # (these are dangling inside static_region in the clean baseline)
+#
+# FELIX floorplan fix (2026-08-06): was S12_INI_0..S19_INI_0, one per
+# service_layer SL2NOC port. Seven of those eight SL2NOC ports fed dead V80
+# DCMAC-era self-test kernels and were costing this partition 7 NMU512 hard
+# blocks -- see 10_service_layer.tcl. S13..S19 are left DANGLING inside
+# static_region, exactly as the clean baseline has them; NUM_NSI on
+# noc/axi_noc_cips is deliberately NOT reduced, because renumbering the S*_INI
+# pins would break references throughout the 94k-line generated
+# 00_felix_cips_static_region.tcl for no fabric saving. Unused NSI ports cost
+# NoC IDs, which are budgeted explicitly via NOC_HIGH_ID_MIN/MAX in
+# dfx_build/constraints/felix_pblock.xdc.
 current_bd_instance /static_region
 foreach p {S00_INI_0 S01_INI_0 S02_INI_0 S03_INI_0 \
-           S12_INI_0 S13_INI_0 S14_INI_0 S15_INI_0 S16_INI_0 S17_INI_0 S18_INI_0 S19_INI_0 \
+           S12_INI_0 \
            S20_INI_0 S21_INI_0 S22_INI_0 S23_INI_0} {
     connect_bd_intf_net [get_bd_intf_pins noc/$p] \
         [create_bd_intf_pin -mode Slave -vlnv xilinx.com:interface:inimm_rtl:1.0 $p]
@@ -49,7 +60,7 @@ connect_bd_intf_net [get_bd_intf_pins static_region/M00_INI1] [get_bd_intf_pins 
 connect_bd_intf_net [get_bd_intf_pins static_region/M00_INI2] [get_bd_intf_pins service_layer/S_VIRT_02]
 connect_bd_intf_net [get_bd_intf_pins static_region/M00_INI3] [get_bd_intf_pins service_layer/S_VIRT_03]
 connect_bd_intf_net [get_bd_intf_pins static_region/M00_INI4] [get_bd_intf_pins service_layer/S_QDMA_SLV_BRIDGE]
-foreach i {0 1 2 3 4 5 6 7} {
+foreach i {0} {
     set s [expr {$i+12}]
     connect_bd_intf_net [get_bd_intf_pins static_region/S${s}_INI_0] [get_bd_intf_pins service_layer/SL2NOC_${i}]
 }

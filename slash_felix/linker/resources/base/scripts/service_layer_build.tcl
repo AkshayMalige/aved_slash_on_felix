@@ -104,7 +104,15 @@ puts "OPT POST HOOK:     $service_layer_eth_opt_post_tcl"
 set rm_proj_name "service_layer_${proj_name}"
 set rm_name "${rm_proj_name}_rm"
 
-create_project $rm_proj_name $rm_work_dir -part xcv80-lsva4737-2MHP-e-S -force
+# FELIX port (2026-08-06): part + RP cell path were still V80's. Mirrors the
+# port already done in slash_project_build.tcl (:132, :145, :165, :175).
+# NOTE: this script is still NOT runnable end-to-end on FELIX -- it also needs
+# resources/abstract_shell/service_layer/service_layer.bd, which does not exist
+# yet (only slash_base/ does). That BD must be generated from the CURRENT
+# 10_service_layer.tcl against the abstract shell of the NEXT base build, since
+# the service_layer RP boundary changed (SL2NOC_0..7 -> SL2NOC_0). See the
+# gen_slash_base.tcl model.
+create_project $rm_proj_name $rm_work_dir -part xcvp1552-vsva3340-2MHP-e-S -force
 
 set_property ip_repo_paths [list $base_ip_repo $ip_repo] [current_project]
 update_ip_catalog
@@ -118,7 +126,7 @@ set_property source_mgmt_mode All [current_project]
 create_partition_def -name $rm_proj_name -module service_layer
 create_reconfig_module -name $rm_name -partition_def [get_partition_defs $rm_proj_name] -define_from service_layer
 
-create_pr_configuration -name config_1 -partitions [list top_i/service_layer:$rm_name]
+create_pr_configuration -name config_1 -partitions [list felix_cips_i/service_layer:$rm_name]
 set_property USE_BLACKBOX 0 [get_pr_configuration config_1]
 set_property PR_CONFIGURATION config_1 [get_runs impl_1]
 
@@ -141,7 +149,7 @@ wait_on_run "${rm_name}_synth_1"
 
 set rm_synth_dcp [file join $rm_work_dir "${rm_proj_name}.runs" "${rm_name}_synth_1" "service_layer.dcp"]
 add_files $rm_synth_dcp
-set_property SCOPED_TO_CELLS {top_i/service_layer} [get_files $rm_synth_dcp]
+set_property SCOPED_TO_CELLS {felix_cips_i/service_layer} [get_files $rm_synth_dcp]
 set_property strategy Congestion_SSI_SpreadLogic_high [get_runs impl_1]
 set_property STEPS.OPT_DESIGN.TCL.POST $opt_post_hook [get_runs impl_1]
 puts "Attached impl_1 post-opt hook: $opt_post_hook"
@@ -151,4 +159,4 @@ wait_on_run impl_1
 open_run impl_1
 
 set partial_pdi [file join $artifact_out_dir "top_i_service_layer_service_layer_${proj_name}_inst_0_partial.pdi"]
-write_device_image -cell top_i/service_layer -force $partial_pdi
+write_device_image -cell felix_cips_i/service_layer -force $partial_pdi
