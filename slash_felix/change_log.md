@@ -104,8 +104,8 @@ builds and installs the same 15 packages as upstream SLASH.
 
 | Component | Note |
 |---|---|
-| `driver/` (slash.ko + libslash) | device IDs 50b4/5/6 match → **0 changes** |
-| `vrt/` (libvrt + vrtd), `smi/` | hardcoded map already matched → **0 changes** |
+| `driver/` (slash.ko + libslash) | device IDs 50b4/5/6 match → no *porting* changes. **Not byte-identical any more:** `slash_qdma.c`, `libslash/src/qdma.c`, `uapi/slash_interface.h` carry the per-queue `aperture_size` change — see §1. |
+| `vrt/` (libvrt + vrtd), `smi/` | hardcoded map already matched → no *porting* changes. **Not byte-identical any more:** `allocator.hpp`, `device.cpp`, `vrtd/libvrtd/src/buffer.c`, `vrtd/src/{buffer,design_writer}.c` carry bug fixes / perf changes — see §1. `smi/` is unchanged. |
 | `cmake/`, `packaging/debian/`, `submodules/qdma_drv/` | build infra / Debian packaging / DMA driver, unmodified |
 | `scripts/{pconfigure,pbuild,pinstall}.sh` | vendored from SLASH byte-for-byte |
 | `…/AVED/sw/AMI/` (ami.ko + ami_tool + AMI lib) | binds via VSEC discovery → **0 changes** |

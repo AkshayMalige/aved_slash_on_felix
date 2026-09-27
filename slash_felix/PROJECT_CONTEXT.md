@@ -4,7 +4,20 @@
 > then `plan_070726.md` (the step-by-step plan) and `diagrams.md` (ASCII
 > picture book). Update this file whenever a fact changes or a step
 > completes — it should only get more accurate over time.
-> Last updated: 2026-07-21.
+> Last updated: 2026-07-21. §0a and the corrections marked 2026-09-27 are newer.
+
+## 0a. The three regions, and where YOUR kernels go (2026-09-27)
+
+| Region | Role | Rebuilt by `v80++ link`? | FELIX pblock |
+|---|---|---|---|
+| `static_region` | CIPS/CPM5 PCIe+QDMA, PMC, NoC, DDR MC, base_logic, clocks. Never reconfigured. | never | leftover (~19%) |
+| **`slash`** = user region | **All user HLS kernels**: control (`S_AXILITE_INI`, 0x202) *and* memory ports (`ddr_noc_0..3` → `M00..M03_INI` = `DDR0..3`; `noc_virt_00..03` = `VIRT0..3`; `qdma_slave_bridge_noc` = `HOST`) | **every link** | **70.5%** (Phase B) |
+| `service_layer` = service region | Shell services. V80: DCMAC Ethernet. FELIX: 1 self-test `eth_0`→`sl2noc_0` (control terminator for 0x203) + 4 VIRT relays + 1 HOST relay. **No user kernels.** | only when `[network]` is set → **never on FELIX** | 10.3% |
+
+- Kernel→DDR path: `kernel m_axi → slash/ddr_noc_N → slash/M0N_INI → axi_noc_cips/S0N_INI → M01_INI → axi_noc_mc_ddr4_0/S01_INI → MC_0`. **The service layer is not on it.**
+- Sources: `linker/src/main.py` (`build_slash_rm` always, `build_service_layer_rm` only if `networking_enabled`), `linker/src/emit/hw/user_region/{ddr,virt,host}_ctx.py`, `linker/resources/bd_ports.txt`, `dfx_build/scripts/{10_service_layer,20_slash,30_integrate}.tcl`.
+- Older notes (here, in `diagrams.md`, `slash_felix_view.md`) that call `SL2NOC_x` "kernel sockets" or say the linker wires kernel `m_axi` into the service layer are **wrong**. Those three files were corrected 2026-09-27.
+- **Upstream re-sync note:** SLASH_latest ships a *compute* shell with **no service_layer** (`linker/slashkit/resources/base/compute/`) next to the *service* shell FELIX was modelled on. FELIX has no DCMAC and no user of VIRT/HOST, so the compute shell is the natural template. Upstream also changed PF1/PF2 device IDs to `0x50C1`/`0x50C2` (`docs/explanation/bar-address-map.rst`), which FELIX still has as `50b5`/`50b6`.
 
 ## 0. Progress snapshot (2026-07-24) — read this first
 
@@ -48,19 +61,27 @@
 
 **DDR is ONE physical channel.** FELIX wires exactly **1 DDRMC** to **1 DDR4 mini-DIMM**
 (DDR4-2666, 72-bit = 64+8 ECC, dual-rank). Silicon has 4 DDRMC blocks but only one has
-DRAM on the board. **Theoretical peak ≈ 21.3 GB/s; realistic ≈ 15–18 GB/s.** The other
-3 DDRMCs are dark (no board wiring). More memory bandwidth is *not* available on this
+DRAM on the board. **Theoretical peak ≈ 21.3 GB/s. Measured ceiling ≈ 13.4 GB/s,
+shared by ALL DDR traffic** (host DMA and every kernel port go through the one
+`M01_INI → S01_INI` door; proven by a concurrency test on 2026-08-05). A single port
+reads at ≤ 8.39 GB/s. The other 3 DDRMCs are dark (no board wiring). More memory bandwidth is *not* available on this
 board — only a faster DIMM (DDR4-3200 → 25.6) or a different board (more channels/HBM)
 would change it.
 
-**`DDR0`/`DDR1`/`DDR2`/`DDR3` are NOT 4 channels — they are up to 4 NoC access ports
-("doors") into the SAME single DDRMC.** All four lead to the same one DIMM and share the
-same ~21 GB/s. Do not confuse a DDR *port* (NoC path, `M0x_INI`) with a DDR*MC*
-(controller) or a channel.
-- **Only 2 doors are wired today:** the DDRMC has `NUM_NSI {2}` (`00_felix_cips_static_region.tcl`,
-  `axi_noc_mc_ddr4_0`) → `MC_0`=DDR0, `MC_1`=DDR1. **DDR2/DDR3 are unmapped → a kernel
-  mapped to them (`sp=...:DDR2/3`) segfaults the host** at buffer alloc. `01_aximm` (DDR0+DDR1)
-  works; `02_ddr_bw` (DDR0-3) crashed for this reason.
+**`DDR0`/`DDR1`/`DDR2`/`DDR3` are NOT 4 channels — they are 4 NoC access ports
+("doors") out of the `slash` partition (`slash/M00..M03_INI`) into the SAME single DDRMC.**
+All four lead to the same one DIMM and share the same ~13.4 GB/s. Do not confuse a DDR
+*port* (NoC path, `M0x_INI`) with a DDR*MC* (controller) or a channel.
+- **All four doors are routed in hardware.** `30_integrate.tcl` points
+  `axi_noc_cips/S00..S03_INI` (= DDR0..3) at `M01_INI`, the live door. After
+  `05_fix_static.tcl` the MC itself has `NUM_MCP {1}` and a single live input
+  (`S01_INI → MC_0`); `S00_INI` has `CONNECTIONS {}`.
+  <!-- corrected 2026-09-27: this bullet previously said "only 2 doors are wired:
+       NUM_NSI {2} → MC_0=DDR0, MC_1=DDR1". That described the pre-05_fix_static MC. -->
+- **Still, only DDR0/DDR1 work on the card.** A kernel mapped to `sp=...:DDR2/3`
+  segfaulted the host at buffer alloc (`02_ddr_bw`, DDR0-3). Since the hardware
+  routes exist, the fault is most likely in software, in how the linker/`vrt`
+  resolves a `bd_ports.txt` name to a memory bank. Not yet root-caused.
 - **The "4" is a template default, NOT a hardware cap.** `linker/resources/slash.tcl`
   hardcodes 4 `ddr_noc` bridges and `bd_ports.py` sets `num_ddr=4`. You can open more
   doors (raise `NUM_NSI`, route `M02/M03_INI`, edit the template) — but **it buys zero
@@ -70,21 +91,31 @@ same ~21 GB/s. Do not confuse a DDR *port* (NoC path, `M0x_INI`) with a DDR*MC*
 - One AXI `m_axi` port does **both** read and write (independent AXI R/W channels) — you do
   not need separate read/write ports.
 
-**Kernel clock is capped at 333.33 MHz by software, not by timing.**
-`vrt/include/vrt/device.hpp:95 CLOCK_MAX_FREQ = 333333333`; `device.cpp:251-254` clamps any
-vbin requesting more (warns "exceeds maximum frequency 333333333"). Kernels are *implemented*
-at a 400 MHz base (`linker/src/emit/metadata/timing_freq.py base_freq_hz`) and the vbin may
-record 400, but **they RUN at ≤333 MHz**. Harmless for memory BW: 512-bit × 333 MHz =
-21.3 GB/s ≥ the DDR ceiling. **To raise:** ≤400 MHz — bump `CLOCK_MAX_FREQ` + rebuild/reinstall
-the `vrt` package (kernels already close 400); >400 MHz — also raise the linker `base_freq_hz`,
-ensure the RM closes timing, and note `clk_wizard_slash` VCO range may need a base rebuild.
-Only worth it for *compute*-bound kernels; irrelevant to DDR/QDMA bandwidth. Set
-`freqhz=333333333` in a kernel's `config.cfg` `[clock]` block to avoid the warning.
+**Kernel clock: use `freqhz=250000000`. The usable range is 100–274 MHz.**
+<!-- corrected 2026-09-27: this paragraph previously said kernels "RUN at ≤333 MHz" and
+     recommended freqhz=333333333. Both were disproved on hardware 2026-08-05. -->
+`vrt/include/vrt/device.hpp:95 CLOCK_MAX_FREQ = 333333333` still clamps higher requests.
+But two upstream bugs meant the clock did not behave the way this note used to claim
+(`BUGS_UPSTREAM.md`):
+1. `device.cpp` had no `else`, so any `freqhz` ≤ 333.33 MHz programmed **nothing**. The
+   fabric kept whatever rate it was last left at (100 MHz after power-on). **Fixed in the
+   felix tree** (`change_log.md` §1).
+2. `vrtd/src/clock.c` reports success for requests ≥ ~275 MHz without moving the clock,
+   and `getFrequency()` / `v80-smi debug clockwiz --get` echo the request. **Not fixed.**
+   So 333 MHz is unreachable in practice, and the readback is not proof.
+
+Kernels are *implemented* at a 400 MHz base (`linker/src/emit/metadata/timing_freq.py
+base_freq_hz`), so timing is not the limit. At 250 MHz, 512-bit × 250 MHz = 16 GB/s per
+port, which is above the ~13.4 GB/s DDR door, so memory-bound kernels lose nothing. Raising
+the clock only matters for *compute*-bound kernels, and it needs Bug 2 fixed first.
 
 **Base NoC QoS is placeholder-low.** As shipped from the VEK280/SLASH port, the DDR
 controller was provisioned at only ~1.5 GB/s (`MC_0 {1000}`+`MC_1 {500}`) and the QDMA→DDR
-hop at 128 MB/s — raised in the base PDI. But NoC QoS is a *floor, not a cap* (a DDR kernel
-write hits 23.8 GB/s over a 5 GB/s reservation), so it was **not** the QDMA limiter.
+hop at 128 MB/s — raised in the base PDI. NoC QoS is a *floor, not a cap*, so it was
+**not** the QDMA limiter. (An older version of this note cited "a DDR kernel write hits
+23.8 GB/s" as evidence. That number is above the DIMM's 21.3 GB/s physical peak. It came
+from the base PDI's self-test IPs while partial reconfiguration was silently failing. See
+memory `felix-dfx-keyhole-aperture` and `change_log.md` §1 `aperture_size` row.)
 
 **QDMA host↔card = ~4.3 GB/s, correct (SOLVED 2026-07-30) — a felix perf change, NOT an
 upstream bug.** The reference SLASH pairs `{buffer.c 4 KB writes, driver aperture_size 4096
@@ -92,6 +123,10 @@ upstream bug.** The reference SLASH pairs `{buffer.c 4 KB writes, driver apertur
 but left `aperture=4096` → 128 MB wrapped into a 4 KB keyhole window = **silent data
 corruption** (`01_aximm` 4 MB → `Test failed`). Fix = matched pair: keep big writes AND set
 `driver/slash_qdma.c` **`aperture_size = 0`** (linear DMA). Verified: `Test passed`, ~4.3 GB/s.
+**Correction (2026-07-31): the `0` must be per-queue, not global.** Data queues (`buffer.c`)
+use 0. The design-writer queue that streams partial PDIs to the PMC SBI FIFO at
+`0x1_0210_0000` must keep 4096 (keyhole). A global 0 silently stopped partial
+reconfiguration. See `change_log.md` §1, `aperture_size` row.
 PCIe link is now genuine **Gen5 x8 32GT/s** (earlier "Gen3 downgraded" was a cable issue, fixed).
 The ~4.3 ceiling is the single-queue `buffer.sync()` path (same path V80 uses) — going further
 (SGL page-coalescing + hugepages, or multi-queue) is custom, off the reference path; don't
@@ -136,8 +171,9 @@ Decisions already made — do not relitigate:
   first-light needs NO firmware (gcq stays idle).
 - **Hardware**: one Vivado BD. `static_region` (never reconfigured: CIPS/CPM5
   PCIe, base_logic mgmt, NoC, DDR MCs) + two DFX partitions (`slash`,
-  `service_layer` — BD containers, marked by enable_dfx_bdc.tcl) where
-  `v80++ link` splices user kernels.
+  `service_layer` — BD containers, marked by enable_dfx_bdc.tcl).
+  `v80++ link` splices user kernels into **`slash` only**. `service_layer`
+  holds shell services (DCMAC on V80) and is relinked only for Ethernet. See §0a.
 
 ## 4-AUTH. AUTHORITATIVE V80 facts (parsed from install.prj/top.bd JSON, 2026-07-09)
 
@@ -236,8 +272,10 @@ Source: `SLASH/linker/src/install.prj/slash.srcs/sources_1/bd/top/top.bd`.
 - Real service_layer.tcl: DCMAC gated behind DCMAC0/1_ENABLED flags;
   dummy_noc_* are real axis_noc ethernet bridges (not placeholders);
   eth_0..7 (VLNV hls:hbm_bandwidth — misleading name, generic bandwidth
-  counter) drive sl2noc in the self-test build; the true shell contract
-  leaves sl2noc_x/S00_AXI open for kernels. It has NO M_AXILITE_MGMT port
+  counter) drive sl2noc in the self-test build. ~~the true shell contract
+  leaves sl2noc_x/S00_AXI open for kernels~~ **(wrong, corrected 2026-09-27:
+  user kernels never attach to sl2noc. They go into `slash`. sl2noc_x is the
+  service layer's own memory path for its network logic. See §0a.)** It has NO M_AXILITE_MGMT port
   and no SMBus. axi4_full_passthrough = plain pipeline stage, nothing DFX.
 - base_logic (V80): rpu_sc NUM_MI=2 with axi_smbus_rpu (smbus:1.1) on M01;
   top-level `smbus_0` port is iic_rtl-typed (an axi_iic is drop-in-shaped
@@ -246,6 +284,10 @@ Source: `SLASH/linker/src/install.prj/slash.srcs/sources_1/bd/top/top.bd`.
   32GT/s, X8, PF IDs 50b4/50b5/50b6, same BARs/AXIBARs).
 
 ## 5. Current state of the FELIX design (as of 2026-07-07)
+
+> **HISTORICAL.** Describes the retired `am_felix_*.tcl` / `myproj` flow. The
+> design is now built by `dfx_build/scripts/` (see `dfx_build/README.md`,
+> `BUILD_RUNBOOK.md`) and every gap listed below has been closed. See §0/§0a.
 
 BD `felix_cips` (myproj/project_1.xpr, Vivado 2025.1, part
 xcvp1552-vsva3340-2MHP-e-S). Built by `am_felix_cips.tcl` →
@@ -306,6 +348,9 @@ FELIX target NoC sizing: SI=4, MI=1, NMI=2–4, NSI=8–13 (see plan).
 - Don't remove content when asked to expand/rewrite ("dont remove anything").
 
 ## 8. Next actions (start here next session)
+
+> **HISTORICAL (2026-07-07).** Plan Phase A/B are done. Current open items live in
+> `SLASH_GAPS.md`, `PHASE_A_RESUME.md`, and the memory index.
 
 1. Ask/confirm where we are in the plan checklist (plan_070726.md bottom).
 2. If nothing changed since 2026-07-07: implement Phase A1+A2 as Tcl (user

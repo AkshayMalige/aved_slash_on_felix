@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **CURRENT STATE (2026-09-27): most of this file from "What this is" down is
+> HISTORICAL.** The `am_felix_*.tcl` scripts, `am_felix_bd_full.tcl` and `myproj/`
+> it describes no longer exist. The design is now built by `dfx_build/scripts/`
+> (`run_all.tcl` → `run_impl.tcl`, wrapped by `./build_all.sh hw`; see
+> `BUILD_RUNBOOK.md`). Kernels are linked with the ported linker in `linker/`.
+> Region roles: **`slash` = user region, where ALL HLS kernels go** (70.5% of die);
+> **`service_layer` = service region, no user kernels, never relinked on FELIX**
+> (10.3%); `static_region` = PCIe/NoC/DDR. See `PROJECT_CONTEXT.md` §0a and
+> `diagrams.md` §0. **Do not run `./build_all.sh hw` casually**: `run_all.tcl`
+> deletes `dfx_build/proj/` (see `PHASE_A_RESUME.md`).
+
 > **READ FIRST: `PROJECT_CONTEXT.md`** — the accumulated knowledge base for
 > this port (verified V80 architecture facts, current design state + known
 > gaps, user goals/conventions, next actions). Then `plan_070726.md`

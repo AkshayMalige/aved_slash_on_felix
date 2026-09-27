@@ -10,6 +10,14 @@
 >
 > Board: **FELIX FLX-155**, Versal Premium `xcvp1552-vsva3340-2MHP-e-S`.
 > Origin: AMD/Xilinx **SLASH** shell, ported from Alveo **V80** (`xcv80`, HBM).
+>
+> **Corrected 2026-09-27.** Earlier versions said the linker wires kernel `m_axi`
+> ports into the service layer's `SL2NOC_x` "sockets". **Wrong.** Kernels, both
+> control *and* data, live entirely in the **`slash`** partition. Their DDR traffic
+> leaves through `slash/ddr_noc_N → M0N_INI` and never touches the service layer.
+> Also corrected: the DDR address windows (§I.8), the DDR controller's port usage
+> (§I.5), `axi_noc_cips` port counts (§V), and "0 source changes" to drivers/vrt
+> (§IV.2). See `diagrams.md` §0 for the one-table summary of the three regions.
 
 ---
 
@@ -56,46 +64,60 @@ these, they recur everywhere:
 
 A Versal device running SLASH is split into a **static region** (built once, never
 changes) and two **DFX partitions** (`slash` and `service_layer`) that can be
-reconfigured at runtime by streaming a *partial* PDI.
+reconfigured at runtime by streaming a *partial* PDI. They have very different
+jobs:
+
+- **`slash` = the user region.** Your HLS kernels, their control registers and
+  their memory ports all live here. `v80++ link` rebuilds it on every link. After
+  the 2026-08-06 re-floorplan it covers **70.5% of the die**.
+- **`service_layer` = the service region.** It is reserved for *shell services*
+  that sit between the user region and the static shell. On V80 that means the
+  DCMAC Ethernet. On FELIX, which has no DCMAC, it holds only relay plumbing and
+  one self-test counter, and it covers 10.3% of the die. The linker never rebuilds
+  it on FELIX (`linker/src/main.py`: only when Ethernet is enabled).
 
 ```
  HOST (x86)
-   │  PCIe Gen5 x8   (GTYP banks 102-103)
+   │  PCIe Gen5 x8
    ▼
-╔══════════════════════ STATIC REGION (felix_cips_i, never reconfigured) ═══════════╗
-║                                                                                   ║
-║   ┌──────────── aved ────────────┐        ┌──────────── noc ─────────────────┐    ║
-║   │  cips  (PS + PMC + CPM5)      │  4 SI  │  axi_noc_cips                    │    ║
-║   │    PF0 mgmt  50b4             ├───────►│    (routing crossbar)            │    ║
-║   │    PF1 QDMA  50b5   ◄──DMA──► │        │      │                           │    ║
-║   │    PF2 BAR   50b6             │◄───────┤      ▼  NMI tunnels              │    ║
-║   │                              M00_AXI   │   axi_noc_ddr4 ──────► DDR4 DIMM │    ║
-║   │  base_logic                  │ (mgmt)  │   (1 controller, 72-bit ECC)     │    ║
-║   │    hw_discovery (VSEC ROM)   │         │                                  │    ║
-║   │    uuid_rom                  │         │   axi_noc_qdma_ret (loopback)    │    ║
-║   │    gcq_m2r (command queue)   │         └───▲──────────▲──────────▲────────┘    ║
-║   │  clock_reset (kernel clks)   │        NSI  │          │ NSI ×8   │ loopback    ║
-║   └──────────────────────────────┘   tunnels  │          │          │             ║
-╚═══════════════════════════════════════════════╪══════════╪══════════╪════════════╝
-                                                 │          │          │
-      ══ DFX BOUNDARY — every crossing is a NoC "INI tunnel" (safe across reconfig) ══
-                                                 │          │          │
-┌──────────── slash (DFX) ───────────┐  ┌────────┴──────────┴──────────┴────────────┐
-│  kernel control (AXI-Lite regs)    │  │            service_layer (DFX)             │
-│  kernel DDR sockets                │  │  SL2NOC_0..7   kernel→DDR data sockets     │
-│  QDMA_SLAVE_BRIDGE_0               │  │  S/M_VIRT_0..3 runtime buffer paths        │
-│      ▲                             │  │  QDMA slave-bridge loopback chain          │
-│      │  YOUR HLS KERNEL lands here │  │      ▲                                      │
-└──────┴─────────────────────────────┘  └──────┴──────────────────────────────────────┘
-        (v80++ linker splices it in)            (linker wires kernel m_axi here)
+╔══ STATIC REGION (felix_cips_i, never reconfigured) ══════════════════════════════════╗
+║ ┌── aved ────────────────────┐        ┌── noc ───────────────────────────────────┐   ║
+║ │ cips (PS + PMC + CPM5)     │        │ axi_noc_cips  4SI 2MI 7NMI 24NSI         │   ║
+║ │   PF0 mgmt  50b4           │  4 SI  │   M01_INI ─► axi_noc_mc_ddr4_0 ─► DIMM   │   ║
+║ │   PF1 QDMA  50b5           │─────►  │   M04_INI ─► slash ctrl      (0x202)     │   ║
+║ │   PF2 BAR   50b6           │◄─────  │   M05_INI ─► service ctrl    (0x203)     │   ║
+║ │ base_logic (ROMs, gcq)     │M00_AXI │   S00-03_INI ◄─ slash DDR0-3             │   ║
+║ │ clock_reset                │        │   S12,S20-23_INI ◄─ service layer        │   ║
+║ └────────────────────────────┘        └──────────────────────────────────────────┘   ║
+║                                                                                      ║
+║ virt_noc  : 5 INI retimers, slash VIRT/HOST ports ─► service layer                   ║
+║ axi_noc_1 : service-layer HOST relay ─► NOC_CPM_PCIE_0 ─► host RAM                   ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+      ══ DFX BOUNDARY — every data/control crossing is a NoC "INI tunnel" ══
+┌── slash (DFX) = USER REGION ───────────────┐  ┌── service_layer (DFX) = SERVICE REGION ┐
+│ * YOUR HLS KERNELS LIVE HERE *             │  │ eth_0 self-test ─► sl2noc_0 ─► SL2NOC_0│
+│ s_axi_control ◄─ S_AXILITE_INI (0x202)     │  │   ctrl: S_AXILITE_INI (0x203)          │
+│ m_axi ─► ddr_noc_0..3 ─► M00..03_INI ─► DDR│  │ VIRT relay ×4: S_VIRT ─► M_VIRT ─► DDR │
+│ m_axi ─► noc_virt_0x ─► SL_VIRT ─► (svc)   │  │ HOST relay ×1 ─► axi_noc_1 ─► host RAM │
+│ m_axi ─► qdma_slave_bridge_noc ─► (svc)    │  │ (both arrive via static virt_noc)      │
+│ 70.5% of die, rebuilt by every link        │  │ 10.3% of die, never relinked on FELIX  │
+└────────────────────────────────────────────┘  └────────────────────────────────────────┘
 ```
 
 **Why this split?** The static region holds everything the host needs to *stay
-connected* — the PCIe endpoint, DMA, DDR, management. If that were ever
+connected*: the PCIe endpoint, DMA, DDR and management. If that were ever
 reconfigured, the PCIe link would drop and the host would crash. So kernels only
-ever land in the DFX partitions, which are reconfigured *through* the static
+ever land in the `slash` partition, which is reconfigured *through* the static
 region's PCIe/PMC path while the link stays up. That is the entire trick that
 makes "swap the kernel without rebooting" possible.
+
+**Floorplan (what "bigger DFX region" means).** Each partition is a pblock. What
+sizes a pblock in this design is the number of NoC master units (NMU512, one per
+`axi_noc` SI port), because NMU512s exist only in clock-region columns X1/X3/X5/X7.
+V80's service layer needed 13 NMU512s, which forced its pblock to 38.8% of the
+die. Deleting 7 dead `eth_N`/`sl2noc_N` pairs dropped it to 6 NMU512s and 10.3%,
+and `pblock_slash` grew **33.6% → 44.7% → 70.5%**. That is the room for larger
+HLS kernels. Source: `dfx_build/constraints/felix_pblock.xdc`, `PHASE_A_RESUME.md`.
 
 ---
 
@@ -123,12 +145,15 @@ attach to a NoC "door" and the NoC compiler bakes static routes into the PDI.
 - **NSI / NMI** — **INI = Inter-NoC Interface**, a logical tunnel between two NoC
   cells. An **NMI** on one cell always mates to an **NSI** on another. No wires —
   just "traffic may flow A→B." **These tunnels are what cross the DFX boundary
-  safely** (raw AXI can't; that's why HBM on V80 needed a `dfx_decoupler` and INI
-  paths don't).
+  safely.** Raw AXI *can* cross, but it has to be gated by a `dfx_decoupler`
+  while the partition is being reprogrammed. V80's 64 raw HBM ports needed that
+  decoupler; INI paths don't.
 
-Read `axi_noc_cips = 4 SI / 1-2 MI / N NMI / M NSI` as: 4 masters enter, a couple
-of register exits, N tunnels out (to DDR / kernel-control apertures), M tunnels in
-(from the kernel sockets returning traffic).
+Read FELIX's `axi_noc_cips = 4 SI / 2 MI / 7 NMI / 24 NSI` (same counts as V80) as:
+4 CIPS masters enter; 2 register exits (mgmt, PMC); 7 tunnels out (DDR doors
+M00/M01, dead V80 DDR doors M02/M03, slash control M04, service control M05,
+clock registers M06); 24 tunnels in (slash DDR0-3 on S00-S03, SL2NOC_0 on S12,
+M_VIRT_0-3 on S20-S23, the rest dangling).
 
 ---
 
@@ -161,9 +186,12 @@ of register exits, N tunnels out (to DDR / kernel-control apertures), M tunnels 
 
 The **CPM5** is the single most important block: it *is* the PCIe endpoint the
 host enumerates, and it contains the DMA engine. It presents **two** masters to
-the NoC — one for bulk DMA data (`CPM_PCIE_NOC_0`) and one for register/BAR
-traffic (`CPM_PCIE_NOC_1`). Keep those two names in mind; the data-flow diagrams
-below are just "which of these two doors did the traffic come in?"
+the NoC, `CPM_PCIE_NOC_0` and `CPM_PCIE_NOC_1`. The "0 = DMA data, 1 = BAR" labels
+above are a simplification. `30_integrate.tcl` gives `S00_AXI` and `S01_AXI`
+the same routes (DDR via `M01_INI`, mgmt `M00_AXI`, slash control `M04_INI`,
+service control `M05_INI`), so the flows below hold whichever port a transaction
+uses. The DMA engine also has an AXI *slave* port, `NOC_CPM_PCIE_0`. Card-side
+masters use it to reach host RAM (the `HOST` path, §I.6).
 
 The **PMC** matters for the *reprogramming* path (§I.11) — it owns the **SBI**,
 the interface that accepts a host-streamed partial PDI.
@@ -207,98 +235,131 @@ AMC involvement.
 ## I.5 The NoC cells and what each one routes
 
 ```
-                       ┌───────────────── axi_noc_cips ─────────────────┐
-   CPM_PCIE_NOC_0 ───► │ S00_AXI                                        │
-   (QDMA data)         │                     routing                    │
-   CPM_PCIE_NOC_1 ───► │ S01_AXI             crossbar         M00_AXI   │───► base_logic
-   (BAR / mgmt)        │                                     (mgmt regs)│     mgmt aperture
-   PMC (ps_pmc)   ───► │ S02_AXI                                        │     0x201_0000_0000/32M
-   RPU (ps_rpu)   ───► │ S03_AXI     M01_INI ──► (to DDR) ──────────────│
-                       │             M0x_INI ──► slash control aperture │
-                       │             M0x_INI ──► service ctrl aperture  │
-                       │  NSI ◄── kernel sockets return here (SL2NOC…)  │
-                       └────────────────────────────────────────────────┘
+                       ┌─────────── static_region/noc/axi_noc_cips ──────────┐
+   CPM_PCIE_NOC_0 ───► │ S00_AXI                                  M00_AXI    │──► base_logic mgmt
+   CPM_PCIE_NOC_1 ───► │ S01_AXI           routing                (mgmt regs)│    0x201_0000_0000/32M
+   PMC (ps_pmc)   ───► │ S02_AXI           crossbar               M01_AXI    │──► NOC_PMC_AXI_0 (PMC/SBI)
+   RPU (ps_rpu)   ───► │ S03_AXI                                             │
+                       │   M00_INI ──► mc S00_INI (connected, but no route: dead)
+                       │   M01_INI ──► mc S01_INI  ← ALL DDR traffic         │
+                       │   M02/M03_INI  dangling (V80's second MC)           │
+                       │   M04_INI ──► slash/S_AXILITE_INI        (0x202)    │
+                       │   M05_INI ──► service_layer/S_AXILITE_INI (0x203)   │
+                       │   M06_INI ──► clk_rst_shell              (0x204)    │
+                       │  S00-S03_INI ◄── slash/M00-M03_INI  (kernel DDR0-3) │
+                       │  S12_INI     ◄── service_layer/SL2NOC_0             │
+                       │  S20-S23_INI ◄── service_layer/M_VIRT_0-3           │
+                       └─────────────────────────────────────────────────────┘
                                           │ M01_INI (tunnel)
                                           ▼
-                       ┌───────────────── axi_noc_ddr4 ─────────────────┐
-                       │  1 memory controller, NUM_MCP=4, NUM_NSI=2     │
-                       │  DDR4-2666V, 72-bit ECC, UDIMM, 2-rank, row17  │
-                       │  S00 = host traffic   S01 = kernel traffic     │───► DDR DIMM
-                       └────────────────────────────────────────────────┘
+                       ┌─────── static_region/noc/axi_noc_mc_ddr4_0 ─────────┐
+                       │  1 memory controller, NUM_MC=1, NUM_MCP=1, NUM_NSI=2│
+                       │  DDR4-2666V, 72-bit ECC, UDIMM, 2-rank, row17       │
+                       │  S01_INI → MC_0 carries host AND kernel traffic;    │───► DDR DIMM (32 GB)
+                       │  S00_INI has CONNECTIONS {} (05_fix_static.tcl)     │
+                       └─────────────────────────────────────────────────────┘
 
-                       ┌──────────── axi_noc_qdma_ret ──────────────────┐
-                       │ QDMA slave-bridge loopback: kernel/service      │
-                       │ traffic that must re-enter CPM5 comes back here │───► CPM_PCIE_NOC
-                       └────────────────────────────────────────────────┘
+                       ┌──────────── static_region/axi_noc_1 ────────────────┐
+                       │ HOST return: service_layer/M_QDMA_SLV_BRIDGE enters │───► aved/NOC_CPM_PCIE_0
+                       │ at S00_INI, exits M00_AXI (CATEGORY ps_pcie)        │     → PCIe → host RAM
+                       └─────────────────────────────────────────────────────┘
 ```
 
-- **axi_noc_cips** — the central crossbar. All four CIPS masters enter here; it
-  fans traffic out to DDR (via `M01_INI`), to the kernel-control apertures, and
-  back from the kernel sockets.
-- **axi_noc_ddr4** — the DDR memory controller front-end. Its two NSIs split
-  **host** traffic (buffer up/download) from **kernel** traffic (compute) so they
-  don't contend on the same port.
-- **axi_noc_qdma_ret** — the return path so a kernel/bridge master can loop back
-  *into* the host's PCIe space (used by the QDMA slave-bridge chain).
+- **axi_noc_cips** is the central crossbar. All four CIPS masters enter here. It
+  fans traffic out to DDR (via `M01_INI`) and to the control apertures, and it
+  receives the NoC tunnels coming back from `slash` and `service_layer`.
+- **axi_noc_mc_ddr4_0** is the DDR memory controller front-end. V80 used its two
+  NSIs to split host from kernel traffic across two controllers. FELIX's
+  single-channel consolidation (`05_fix_static.tcl` §2b) routes **everything**
+  through `S01_INI`, so host DMA and kernels share one door, measured at
+  ~13.4 GB/s aggregate.
+- **axi_noc_1** (sometimes called "qdma_ret" in older notes) is the path by which
+  a card-side master reaches *host* memory through the CPM5 AXI slave bridge
+  (windows `0x80_0000_0000`+). It is used only by the `HOST` memory target.
 
 ---
 
-## I.6 service_layer — a row of pre-wired "wall sockets"
+## I.6 service_layer — the *service* region (no user kernels)
 
-The shell is built **before anyone knows what kernel will run.** So it exposes
-fixed, pre-routed sockets that the linker plugs a kernel into later.
+The service layer is a second reconfigurable partition that SLASH reserves for
+**shell services**: things that sit between the user region and the static shell
+and could be updated independently of both. On V80 that is networking (DCMAC
+Ethernet, `eth_N` endpoints, `SL2NOC_N` so the network logic can reach memory).
+Upstream's `docs/explanation/dcmac.rst` draws it as a separate "Service region"
+band above the "User region".
+
+On FELIX it contains three things, and **none of them carries user traffic today**:
 
 ```
-                     service_layer (DFX partition)
+                     service_layer (FELIX, dfx_build/scripts/10_service_layer.tcl)
 
-   kernel's m_axi plugs in here  ◄── left OPEN in the shell
-        │
-        ▼ S00_AXI                                        M00_INI (tunnel)
-   ┌──────────┐                                          to axi_noc_cips NSI
-   │ sl2noc_0 │ ───────────────────────────────────────────────────► … ► DDR4
-   └──────────┘         (8 identical sockets: SL2NOC_0 … SL2NOC_7)
+   ① self-test + control terminator (1 pair kept of V80's 8)
+      S_AXILITE_INI (0x203_…) ─► axi_noc_0 ─► smartconnect_0 ─► eth_0/s_axi_control
+      eth_0 (hls hbm_bandwidth) ─► sl2noc_0 ─► SL2NOC_0 ─► axi_noc_cips S12_INI ─► DDR
 
-   VIRT path ×4 — runtime buffer plumbing, pre-wired end to end:
-   S_VIRT_x ─►[noc]─►[reg_slice]─►[axi4_full_passthrough]─►[reg_slice]─►[noc]─► M_VIRT_x
-   (tunnel in)              just pipeline stages, no compute            (tunnel out → DDR)
+   ② VIRT relay ×4  (used only if a kernel says sp=…:VIRTn)
+      slash/SL_VIRT_0x ─► static virt_noc ─► S_VIRT_0x ─►[axi_noc]─►[reg_slice]─►
+      [axi4_full_passthrough]─►[reg_slice]─►[noc_virt_x]─► M_VIRT_x ─► axi_noc_cips S20-23_INI ─► DDR
 
-   QDMA loopback — same chain shape, one instance:
-   S_QDMA_SLV_BRIDGE ─► … ─► M_QDMA_SLV_BRIDGE ─► (tunnel) ─► axi_noc_qdma_ret ─► CPM5
+   ③ HOST relay ×1  (used only if a kernel says sp=…:HOST)
+      slash/QDMA_SLAVE_BRIDGE_0 ─► static virt_noc ─► S_QDMA_SLV_BRIDGE ─► same chain ─►
+      M_QDMA_SLV_BRIDGE ─► static axi_noc_1 ─► NOC_CPM_PCIE_0 ─► PCIe ─► host RAM
 ```
 
-`axi4_full_passthrough` (one of the custom IPs in `iprepo/`) is exactly what it
-sounds like — a transparent AXI pipeline stage. It exists so the DFX container has
-a real, place-able cell holding the route open across the boundary; it does no
-computation.
+- **Why keep `eth_0` at all?** `S_AXILITE_INI` (0x203) is this partition's only
+  host-visible register window, and `axi4_full_passthrough` has no control port.
+  Without one AXI-Lite slave, the control chain would have nothing to terminate on.
+- **Why detour VIRT/HOST through here?** It gives a slot where a service could be
+  inserted between kernel and memory without touching `slash` or static. The
+  upstream templates give `S_VIRT` a `0x208_0000_0000` window and `M_VIRT` a
+  `0x600_0000_0000` one, and upstream says the compute shell "has no virtual
+  memory ports". That suggests the slot is meant for address translation. This is
+  an inference from naming, not something the code does: `axi4_full_passthrough`
+  is literally `assign m_axi_* = s_axi_*`.
+- **The linker never rebuilds it on FELIX.** `linker/src/main.py` calls
+  `build_service_layer_rm` only when Ethernet is enabled. The copy in the base
+  PDI is the only one that ever runs.
 
 ---
 
 ## I.7 slash — where your kernel actually lives
 
-The `slash` DFX partition holds the kernel's **control** interface (its AXI-Lite
-register block, reached through a NoC control aperture) and additional DDR
-sockets. On V80 this also held dozens of HBM sockets; on FELIX those are gone.
+The `slash` DFX partition (the **user region**) holds the whole kernel: its
+**control** interface *and* its **memory** ports, plus the NoC entry cells those
+ports attach to. On V80 it also held 64 raw HBM ports. On FELIX those are gone.
 
 ```
               ┌──────────── your HLS kernel ────────────┐
   control ──► │ s_axi_control                            │   AXI-Lite slave:
-  (from NoC   │   0x00 CTRL(start/done)  0x10 arg0 …     │   host pokes args + START,
-   aperture)  │                                          │   polls DONE
-              │ m_axi_gmem  ────────────────────────────┼─► reads/writes DDR
-              └──────────────────────────────────────────┘   via an SL2NOC socket
+  (M04_INI →  │   0x00 CTRL(start/done)  0x10 arg0 …     │   host pokes args + START,
+   0x202 win) │                                          │   polls DONE
+              │ m_axi_gmem  ────────────────────────────┼─► slash/ddr_noc_N/S00_AXI
+              └──────────────────────────────────────────┘   → slash/M0N_INI → DDR
+                                                             (sp=…:DDRN in config.cfg)
 ```
 
 An HLS kernel always compiles to these two port kinds: a **control** slave (how
 the host starts it and passes pointers/scalars) and one or more **m_axi** masters
 (how it streams data to/from DDR). The linker's whole job is to connect those two
-kinds of port to the sockets above (§IV.3).
+kinds of port to the attach points inside `slash` (§IV.3):
+
+| `sp=` target | attach point inside `slash` | leaves `slash` as | reaches | proven on FELIX |
+|---|---|---|---|---|
+| `DDR0`..`DDR3` | `ddr_noc_0..3/S00_AXI` | `M00..M03_INI` | DDR directly | DDR0, DDR1 ✓ (DDR2/3 fail, see PROJECT_CONTEXT §0b) |
+| `VIRT0`..`VIRT3` | `noc_virt_00..03/S00_AXI` | `SL_VIRT_00..03` | DDR via service-layer relay | unused |
+| `HOST` | `qdma_slave_bridge_noc/S00_AXI` | `QDMA_SLAVE_BRIDGE_0` | host RAM via relay + CPM5 | unused |
+
+If several kernel ports map to the same `DDRn`, the linker builds a smartconnect
+reduction tree in front of `ddr_noc_n` (`linker/src/emit/hw/user_region/ddr_ctx.py`).
 
 ---
 
 ## I.8 The address map (what the host sees)
 
-This is the FELIX host-side view (through CPM5's PCIe→NoC apertures). Matches V80
-except for the single DDR channel.
+This is the FELIX device-side AXI map as the CPM5 masters see it (source:
+`dfx_build/scripts/export_felix_cips_top.tcl` `assign_bd_address` lines). The
+register windows match V80. The DDR windows differ because FELIX has one 32 GB
+channel mapped as `C0_DDR_LOW0` + `C0_DDR_CH2`, where V80 had two controllers.
 
 ```
   host physical addr        size   what it is
@@ -309,11 +370,19 @@ except for the single DDR channel.
     0x0201_0101_0000         4K      gcq_m2r  (command queue)  │ axi_noc_cips
     0x0201_0104_0000         4K      pcie_mgmt_pdi_reset_gpio ┘
   0x0201_0800_0000         128M    gcq_payload window  ──REMAP──► DDR 0x0380_0000
-  0x0202_0000_0000          16M    slash control aperture (kernel regs)
-  0x0203_0000_0000           4M    service_layer control aperture
-  0x0050_0800_0000           2G    DDR (low window)      ┐ the card's DRAM,
-  0x0060_0000_0000          32G    DDR (high window)     ┘ reached via axi_noc_ddr4
+  0x0202_0000_0000          16M    slash control aperture (kernel regs)   PF2 BAR0
+  0x0203_0000_0000           4M    service_layer control aperture         PF2 BAR2
+  0x0204_0000_0000          64K    clk_wizard_slash  (kernel clock)       PF2 BAR4
+  0x0204_0001_0000          64K    clk_wizard_service
+  0x0000_0000_0000           2G    DDR  C0_DDR_LOW0   ┐ one 32 GB DIMM, both reached via
+  0x0600_0000_0000          30G    DDR  C0_DDR_CH2    ┘ axi_noc_mc_ddr4_0/S01_INI
+                                   (vrt allocates buffers in the 0x600… window)
+  0x0080_0000_0000         6×1G    host RAM windows (AXIBAR2PCIE_0..5), card→host
 ```
+
+V80's `0x0050_0800_0000` (2G, "CH1") window does **not** exist on FELIX. Earlier
+versions of this table listed it and gave the high window as 32G; the built
+design has 2G + 30G.
 
 The `gcq_payload` **REMAP** is the clever bit: a host BAR window at
 `0x201_0800_0000` is silently redirected by the NoC into *low DDR*
@@ -326,11 +395,12 @@ The `gcq_payload` **REMAP** is the clever bit: a host BAR window at
 `in_buff.sync(HOST_TO_DEVICE)` → PF1/QDMA, memory-mapped DMA:
 
 ```
- host RAM ─PCIe─► CPM5 QDMA ─► CPM_PCIE_NOC_0 ─► axi_noc_cips S00_AXI
+ host RAM ─PCIe─► CPM5 QDMA ─► CPM_PCIE_NOC_x ─► axi_noc_cips S0x_AXI
                                                         │
                                                  M01_INI (tunnel)
                                                         ▼
-                                          axi_noc_ddr4 S00 (host port) ─► DDR DIMM
+                                     axi_noc_mc_ddr4_0 S01_INI ─► MC_0 ─► DDR DIMM
+                                     (the same port the kernels use)
 ```
 
 ## I.10 DATA FLOW #2 — host programs & starts the kernel
@@ -338,11 +408,11 @@ The `gcq_payload` **REMAP** is the clever bit: a host BAR window at
 BAR write → PF2, register poke into the slash control aperture:
 
 ```
- host write ─PCIe─► CPM5 (BAR) ─► CPM_PCIE_NOC_1 ─► axi_noc_cips S01_AXI
+ host write ─PCIe─► CPM5 (BAR) ─► CPM_PCIE_NOC_x ─► axi_noc_cips S0x_AXI
  (0x0202_….)                                              │
-                                                   M0x_INI (tunnel, 0x202 aperture)
+                                                   M04_INI (tunnel, 0x202 aperture)
                                                           ▼
-                                                slash ─► s_axi_control
+                     slash/S_AXILITE_INI ─► axi_noc_0 ─► smartconnect ─► s_axi_control
                                                          (arg ptrs, scalars, START=1)
 ```
 
@@ -352,13 +422,17 @@ Once started, the kernel drives its own `m_axi` reads/writes; **the host is not
 involved.** This is the path your `offset`/`dma` kernels use:
 
 ```
-  kernel m_axi_gmem ─► SL2NOC_x S00_AXI ─► M00_INI ─► axi_noc_cips NSI
-       reads input[i]        (enter NoC)   (tunnel)        │
-       writes output[i]                              M01_INI (tunnel)
-                                                            ▼
-                                             axi_noc_ddr4 S01 (kernel port) ─► DDR
+  kernel m_axi_gmem ─► slash/ddr_noc_N S00_AXI ─► slash/M0N_INI ─► axi_noc_cips S0N_INI
+  (sp=…:DDRN)            (NMU512 inside the          (tunnel across          │
+       reads input[i]     slash pblock)               the DFX boundary)  M01_INI (tunnel)
+       writes output[i]                                                      ▼
+                                                     axi_noc_mc_ddr4_0 S01_INI ─► MC_0 ─► DDR
        ◄──────────────── data returns along the same route ────────────────►
 ```
+
+The service layer is not on this path. Every kernel port and the host DMA share
+the one `M01_INI → S01_INI` door, measured at ~13.4 GB/s aggregate and ~8.4 GB/s
+for a single port's reads.
 
 Two chained kernels (like `01_aximm`: `offset → dma`) add an **AXI-Stream**
 directly between them in the fabric, so intermediate data never touches DDR:
@@ -403,8 +477,9 @@ a specific script and a specific symptom.
 
 ## II.1 Single-DDR consolidation — `05_fix_static.tcl`
 **What:** V80 has **two** DDR controllers (`axi_noc_mc_ddr4_0/_1`); FELIX has one
-DIMM. The patch disconnects `axi_noc_cips/M00_INI → mc_ddr4_0` and routes *all*
-DDR traffic through a single controller via `M01_INI`.
+DIMM. The patch empties the route on `mc_ddr4_0/S00_INI` (`CONNECTIONS {}`), sets
+`NUM_MCP 1`, and sends *all* DDR traffic through `M01_INI → S01_INI → MC_0`. The
+`M00_INI → S00_INI` net still exists in the BD but carries nothing.
 **Why:** FLX-155 has one DDR4-2666 72-bit ECC UDIMM, not V80's two Components
 channels. **Symptom if wrong:** no DRAM / address-map errors.
 
@@ -560,8 +635,11 @@ otherwise released. No process needs to be killed — the binding itself holds i
 **Key fact:** `slash`/`vrt` use a **hardcoded** address map (DDR `0x600…`, SBR gpio,
 clk BAR4) — they do **not** read the hw_discovery VSEC. Only `ami` reads the VSEC.
 So the FELIX port had to make the hardware match V80's device IDs and map exactly,
-rather than teaching the driver a new layout. That is why the drivers build for
-FELIX with **zero source changes**.
+rather than teaching the driver a new layout. That is why the drivers needed **no
+porting changes**. They are no longer byte-identical to upstream, though. Later
+bring-up added the per-queue QDMA `aperture_size` (driver + libslash + vrtd) and
+fixed two upstream vrt bugs (allocator, kernel clock). `change_log.md` §1 lists
+each change.
 
 ## IV.3 The linker (`v80++ link`) — how a kernel becomes a `.vbin`
 
@@ -578,9 +656,12 @@ DFX partition and emits the partial PDI the host streams.
       │   • reads config.cfg: nk= (how many of each kernel),
       │     sp= (which m_axi → which DDR), stream_connect= (kernel→kernel)
       │   • opens the abstract shell (place context from run_impl.tcl)
-      │   • wires kernel control → slash control aperture,
-      │     kernel m_axi → SL2NOC sockets
+      │   • regenerates the slash BD from linker/resources/slash.tcl:
+      │     kernel s_axi_control → smartconnect → S_AXILITE_INI (0x202),
+      │     kernel m_axi → ddr_noc_N (DDRn) / noc_virt_0N (VIRTn) /
+      │     qdma_slave_bridge_noc (HOST), unused ones terminated
       │   • runs place & route of ONLY the slash partition
+      │     (service layer untouched unless [network] is set: never on FELIX)
       ▼
   aximm_hw.vbin   ── the partial PDI + metadata the host loads
 ```
@@ -624,15 +705,17 @@ the stack exercised end to end.
 | Area | V80 (original) | FELIX (this port) | Why |
 |---|---|---|---|
 | **Memory** | 2× DDR4-3200 Components channels **+ HBM** | 1× DDR4-2666 72-bit ECC UDIMM | FLX-155 has one DIMM, no HBM |
-| **axi_noc_cips** | 4 SI / 2 MI / 7 NMI / 24 NSI, **HBM ctrl inside (64 BLI)** | 4 SI, fewer MI/NMI/NSI, **no HBM keys** | no HBM → drop 64 BLI pins + VNoC sockets |
+| **axi_noc_cips** | 4 SI / 2 MI / 7 NMI / 24 NSI, **HBM ctrl inside (64 BLI)** | **same 4/2/7/24**, **no HBM keys**; unused ports left dangling | no HBM → drop 64 BLI pins; ports not renumbered to keep the generated Tcl stable (`30_integrate.tcl`) |
 | **DFX decoupler** | present (gates 64 raw HBM AXI across DFX) | **none** | INI tunnels don't need gating; only HBM did |
-| **DDR controllers** | `mc_ddr4_0` + `mc_ddr4_1` | one `axi_noc_ddr4` | single channel (§II.1) |
+| **DDR controllers** | `mc_ddr4_0` + `mc_ddr4_1` | one `axi_noc_mc_ddr4_0`, NUM_MCP=1, all traffic on `S01_INI` | single channel (§II.1) |
+| **service_layer** | DCMAC Ethernet + 8 `eth_N`/`sl2noc_N` + VIRT/HOST relays; relinked when `[network]` is set | 1 self-test `eth_0`/`sl2noc_0` + VIRT/HOST relays; **never relinked**; pblock 38.8% → 10.3% of die | no DCMAC; each `sl2noc` cost an NMU512 and pblock area |
+| **slash pblock** | V80 floorplan | **70.5% of die** (was 33.6%) | re-floorplan 2026-08-06 (`felix_pblock.xdc`) |
 | **PMC/RPU→DDR** | DDR mapped into both PMC & LPD NoC | had to be **re-added** (§II.2) | single-DDR consolidation severed it |
 | **DDR params** | Components, RANK 1, ROW 16 | UDIMM, RANK 2, ROW 17 | FLX-155 DIMM (proven in step1_vp1552) |
 | **Networking** | DCMAC 600G Ethernet in service_layer | **stripped** | FLX-155 has no DCMAC |
 | **SMBus** | `axi_smbus_rpu` in base_logic | **removed** | FLX-155 has no SMBus |
 | **Boot** | flash (OSPI) → `boot_device{pcie}` in PDI | JTAG bring-up → **inject** `boot_device{pcie}` (§II.4) | CIPS ported from VEK280, never declared PCIe boot |
-| **Drivers/vrt** | — | **byte-identical, 0 source changes** | HW matched V80 device IDs + map on purpose |
+| **Drivers/vrt** | — | **no porting changes**; later bug-fix/perf edits (per-queue `aperture_size`, allocator, clock) | HW matched V80 device IDs + map on purpose; see `change_log.md` §1 |
 
 The guiding principle of the whole port: **make the FELIX hardware look like V80 to
 the software** (same device IDs `50b4/5/6`, same address map), so the drivers,
@@ -656,6 +739,6 @@ AMC profile.
 | Linker | `linker/src/`, resources in `linker/resources/` |
 | Drivers | `driver/` (slash + qdma), AMI under `linker/resources/submodules/AVED/sw/AMI/` |
 | Host libs / daemon | `vrt/` (libvrt, libvrtd, vrtd), `smi/` (v80-smi) |
-| Examples | `examples/{00_axilite,01_aximm}/` |
+| Examples | `examples/{00_axilite,01_aximm,02_ddr_bw,03_qdma_bw,04_test_felix,05_f110}/` |
 | Deploy / runbooks | `DEPLOY_RUNBOOK.md`, `PROJECT_CONTEXT.md`, `diagrams.md`, this file |
 ```
